@@ -90,15 +90,15 @@ struct Face {
 /// pane could show. Fitting the slab instead uses the pane, and both extents
 /// stay constant as the model turns, so a spin does not make it breathe.
 enum Bound {
-    Slab { half_width: f64, half_height: f64, depth: f64 },
+    Slab { half_width: f64, half_height: f64, half_depth: f64 },
 }
 
 impl Bound {
     fn extents(&self, pitch: f64) -> (f64, f64) {
         match *self {
-            Self::Slab { half_width, half_height, depth } => {
+            Self::Slab { half_width, half_height, half_depth } => {
                 // Turning sweeps the slab's near corner out to here and no further.
-                let horizontal = (half_width * half_width + depth * depth).sqrt();
+                let horizontal = (half_width * half_width + half_depth * half_depth).sqrt();
                 // Tipping trades the drawing's own height for that same sweep.
                 let vertical =
                     pitch.cos().abs() * half_height + pitch.sin().abs() * horizontal;
@@ -141,13 +141,6 @@ impl Solid {
 
         let half_width = columns as f64 / 2.0;
         let half_height = rows as f64 * CELL_ASPECT / 2.0;
-        let bound = Bound::Slab { half_width, half_height, depth };
-        let radius =
-            (half_width * half_width + half_height * half_height + depth * depth).sqrt();
-
-        if rows == 0 || columns == 0 {
-            return Self { faces: Vec::new(), radius: radius.max(0.001), bound };
-        }
 
         let mut heights = vec![0.0f64; rows * columns];
         for (row, line) in lines.iter().enumerate() {
@@ -156,8 +149,28 @@ impl Solid {
             }
         }
 
+        // The drawing is lifted from a floor at zero, so the solid occupies
+        // `0..tallest` and nothing sits at the origin the frame is rotated
+        // about. Left that way the model orbits the frame instead of spinning
+        // in place, and a pitched render walks off the bottom edge. Halving the
+        // tallest column and hanging the solid around that puts its own middle
+        // on the axis. Measuring the drawing rather than `depth` also keeps the
+        // fit tight when nothing in it reaches full ink.
+        let tallest = heights.iter().copied().fold(0.0, f64::max);
+        let half_depth = tallest / 2.0;
+
+        let bound = Bound::Slab { half_width, half_height, half_depth };
+        let radius = (half_width * half_width
+            + half_height * half_height
+            + half_depth * half_depth)
+            .sqrt();
+
+        if rows == 0 || columns == 0 {
+            return Self { faces: Vec::new(), radius: radius.max(0.001), bound };
+        }
+
         Self {
-            faces: build_faces(&heights, rows, columns),
+            faces: build_faces(&heights, rows, columns, half_depth),
             radius: radius.max(0.001),
             bound,
         }
@@ -167,7 +180,11 @@ impl Solid {
 /// Emits only the faces that are actually exposed. An interior wall between two
 /// equally tall cells can never be seen, and skipping it keeps the face count
 /// proportional to the drawing's silhouette rather than its area.
-fn build_faces(heights: &[f64], rows: usize, columns: usize) -> Vec<Face> {
+///
+/// `sink` is how far every vertex drops so the solid straddles the origin;
+/// heights themselves stay measured from the drawing's own floor, which is what
+/// the neighbour comparisons below are about.
+fn build_faces(heights: &[f64], rows: usize, columns: usize, sink: f64) -> Vec<Face> {
     let mut faces = Vec::with_capacity(rows * columns * 2);
 
     let half_width = (columns as f64 - 1.0) / 2.0;
@@ -196,19 +213,19 @@ fn build_faces(heights: &[f64], rows: usize, columns: usize) -> Vec<Face> {
 
             // Cap.
             faces.push(Face {
-                a: Vector3::new(x0, y0, top),
-                b: Vector3::new(x1, y0, top),
-                c: Vector3::new(x1, y1, top),
-                d: Vector3::new(x0, y1, top),
+                a: Vector3::new(x0, y0, top - sink),
+                b: Vector3::new(x1, y0, top - sink),
+                c: Vector3::new(x1, y1, top - sink),
+                d: Vector3::new(x0, y1, top - sink),
                 normal: Vector3::new(0.0, 0.0, 1.0),
             });
 
             // Base, so the solid still reads as one when tipped past edge-on.
             faces.push(Face {
-                a: Vector3::new(x0, y0, 0.0),
-                b: Vector3::new(x1, y0, 0.0),
-                c: Vector3::new(x1, y1, 0.0),
-                d: Vector3::new(x0, y1, 0.0),
+                a: Vector3::new(x0, y0, -sink),
+                b: Vector3::new(x1, y0, -sink),
+                c: Vector3::new(x1, y1, -sink),
+                d: Vector3::new(x0, y1, -sink),
                 normal: Vector3::new(0.0, 0.0, -1.0),
             });
 
@@ -227,10 +244,10 @@ fn build_faces(heights: &[f64], rows: usize, columns: usize) -> Vec<Face> {
                     continue;
                 }
                 faces.push(Face {
-                    a: Vector3::new(p.0, p.1, neighbour),
-                    b: Vector3::new(q.0, q.1, neighbour),
-                    c: Vector3::new(q.0, q.1, top),
-                    d: Vector3::new(p.0, p.1, top),
+                    a: Vector3::new(p.0, p.1, neighbour - sink),
+                    b: Vector3::new(q.0, q.1, neighbour - sink),
+                    c: Vector3::new(q.0, q.1, top - sink),
+                    d: Vector3::new(p.0, p.1, top - sink),
                     normal,
                 });
             }
@@ -307,9 +324,12 @@ impl Renderer {
 
         for face in &self.solid.faces {
             let normal = rotation.apply(face.normal);
+            // Back faces are deliberately *not* culled. The solid is closed
+            // enough that culling them looks safe, but at these grid sizes a
+            // face lands on a cell centre rather than on a pixel, and dropping
+            // the back half measurably changed which glyph won several cells.
             // Faces are lit by how squarely they meet the light regardless of
-            // which way they point: the solid is closed, so a face the camera
-            // can see is one whose outward side is toward it.
+            // which way they point.
             let lambert = normal.dot(self.light).abs();
 
             let a = project(face.a);
