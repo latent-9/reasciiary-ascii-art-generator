@@ -10,6 +10,8 @@
 //! and a space is a hole.
 
 use std::f64::consts::TAU;
+use std::sync::Mutex;
+use std::time::SystemTime;
 
 use crate::art::canvas::{ink_coverage, AsciiCanvas, AsciiRamp, CELL_ASPECT};
 use crate::art::generator::{Generator, GlyphGenerator};
@@ -452,6 +454,45 @@ impl GlyphGenerator for SpinningAscii {
     }
 }
 
+/// What a change to the drawing on disk would move.
+type Stamp = (u64, Option<SystemTime>);
+
+struct Cached {
+    path: String,
+    stamp: Stamp,
+    text: String,
+}
+
+/// The drawing most recently read.
+///
+/// The window rebuilds this generator from scratch on every preview frame, so
+/// dragging a slider used to re-read the file off disk a dozen times a second
+/// for a drawing that had not changed. One entry is all that is wanted: the
+/// window shows one drawing at a time. Keyed on the file's length and
+/// modification time rather than held forever, so editing the drawing in
+/// another window still shows up in the preview.
+static LAST_READ: Mutex<Option<Cached>> = Mutex::new(None);
+
+fn read_drawing(path: &str) -> Result<String, String> {
+    let stamp: Stamp = std::fs::metadata(path)
+        .map(|data| (data.len(), data.modified().ok()))
+        .map_err(|error| format!("cannot read `{path}`: {error}"))?;
+
+    // A panic while the lock was held would have left it poisoned; the cache is
+    // only ever a copy of a file, so there is nothing to protect by refusing.
+    let mut cache = LAST_READ.lock().unwrap_or_else(|error| error.into_inner());
+    if let Some(cached) = cache.as_ref() {
+        if cached.path == path && cached.stamp == stamp {
+            return Ok(cached.text.clone());
+        }
+    }
+
+    let text = std::fs::read_to_string(path)
+        .map_err(|error| format!("cannot read `{path}`: {error}"))?;
+    *cache = Some(Cached { path: path.to_string(), stamp, text: text.clone() });
+    Ok(text)
+}
+
 /// Defaults match the Swift CLI (`asciiary +3d`), not the GUI sliders — the two
 /// disagreed in the original and the CLI is the one this command line inherits.
 pub fn build(params: &Params) -> Result<Generator, String> {
@@ -463,8 +504,7 @@ pub fn build(params: &Params) -> Result<Generator, String> {
             let path = params
                 .first_positional()
                 .ok_or("ascii needs a .txt drawing to lift")?;
-            std::fs::read_to_string(path)
-                .map_err(|error| format!("cannot read `{path}`: {error}"))?
+            read_drawing(path)?
         }
     };
 
@@ -479,4 +519,33 @@ pub fn build(params: &Params) -> Result<Generator, String> {
         spin_rate: params.f64("spin", 1.2)?,
         still: params.is_set("still"),
     })))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The cache is what stops the preview from going back to disk, so the risk
+    /// it carries is the opposite one: a drawing edited in another window still
+    /// showing its old shape until the app is restarted.
+    #[test]
+    fn an_edited_drawing_is_read_again() {
+        let path = std::env::temp_dir().join(format!("asciiary-{}.txt", std::process::id()));
+        let path = path.to_str().expect("temp path is utf-8");
+
+        std::fs::write(path, "@@@\n").expect("first write");
+        assert_eq!(read_drawing(path).expect("first read"), "@@@\n");
+        assert_eq!(read_drawing(path).expect("cached read"), "@@@\n");
+
+        std::fs::write(path, "...\n..\n").expect("second write");
+        assert_eq!(read_drawing(path).expect("read after edit"), "...\n..\n");
+
+        std::fs::remove_file(path).expect("cleanup");
+    }
+
+    #[test]
+    fn a_missing_drawing_says_so() {
+        let error = read_drawing("/nowhere/at/all.txt").expect_err("no such file");
+        assert!(error.contains("cannot read"), "unhelpful message: {error}");
+    }
 }
