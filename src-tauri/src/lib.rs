@@ -59,41 +59,68 @@ fn settings_from(params: &Params, format: Format) -> Result<Settings, String> {
     })
 }
 
-/// One frame as text, for the live preview. Cheap enough to run on every slider
-/// move — no rasterizing, no ffmpeg.
+/// Runs `work` somewhere other than the thread the window is drawn on.
+///
+/// A `#[tauri::command]` that is not `async` runs on the main thread, and none
+/// of the three below are cheap: each one lifts the whole drawing into a solid,
+/// and an export then sits on ffmpeg until it finishes. Left on the main thread
+/// a thirty-second GIF freezes the window solid — the elapsed-time counter the
+/// window puts up while rendering could not even repaint itself, so the app
+/// looked hung for exactly as long as it was working.
+async fn off_the_ui_thread<T, F>(work: F) -> Result<T, String>
+where
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+    T: Send + 'static,
+{
+    tauri::async_runtime::spawn_blocking(work)
+        .await
+        .map_err(|error| format!("the render thread stopped: {error}"))?
+}
+
+/// One frame as text, for the live preview. No rasterizing and no ffmpeg, so
+/// this is the cheap one — but only by comparison.
 #[tauri::command]
-fn preview(request: Request, time: f64) -> Result<String, String> {
-    let (generator, _, params) = request.build()?;
-    let columns = params.usize("columns", 160)?;
-    let rows = params.usize("rows", 48)?;
-    match generator {
-        Generator::Glyph(generator) => Ok(generator.canvas(columns, rows, time).text()),
-        Generator::Pixel(_) => Err("this tool draws pixels, not text".into()),
-    }
+async fn preview(request: Request, time: f64) -> Result<String, String> {
+    off_the_ui_thread(move || {
+        let (generator, _, params) = request.build()?;
+        let columns = params.usize("columns", 160)?;
+        let rows = params.usize("rows", 48)?;
+        match generator {
+            Generator::Glyph(generator) => Ok(generator.canvas(columns, rows, time).text()),
+            Generator::Pixel(_) => Err("this tool draws pixels, not text".into()),
+        }
+    })
+    .await
 }
 
 /// How long one loop of the current settings runs, so the preview can spin at
 /// the rate the export will.
 #[tauri::command]
-fn loop_duration(request: Request) -> Result<Option<f64>, String> {
-    let (generator, _, _) = request.build()?;
-    Ok(generator.loop_duration())
+async fn loop_duration(request: Request) -> Result<Option<f64>, String> {
+    off_the_ui_thread(move || {
+        let (generator, _, _) = request.build()?;
+        Ok(generator.loop_duration())
+    })
+    .await
 }
 
 #[tauri::command]
-fn render_art(request: Request) -> Result<String, String> {
-    let (generator, filters, params) = request.build()?;
-    let output = request
-        .output
-        .clone()
-        .ok_or("choose where the file should go first")?;
-    let format = Format::from_path(&output)
-        .ok_or("output must end in .mp4, .gif, .png or .txt")?;
+async fn render_art(request: Request) -> Result<String, String> {
+    off_the_ui_thread(move || {
+        let (generator, filters, params) = request.build()?;
+        let output = request
+            .output
+            .clone()
+            .ok_or("choose where the file should go first")?;
+        let format = Format::from_path(&output)
+            .ok_or("output must end in .mp4, .gif, .png or .txt")?;
 
-    let settings = settings_from(&params, format)?;
-    let pipeline = Pipeline { generator, filters, output: output.into() };
-    let path = art::render(&pipeline, &settings)?;
-    Ok(path.display().to_string())
+        let settings = settings_from(&params, format)?;
+        let pipeline = Pipeline { generator, filters, output: output.into() };
+        let path = art::render(&pipeline, &settings)?;
+        Ok(path.display().to_string())
+    })
+    .await
 }
 
 /// The same pipeline driven by a typed line, for the `asciiary` command.
