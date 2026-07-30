@@ -2,6 +2,7 @@ pub mod canvas;
 pub mod export;
 pub mod filter;
 pub mod generator;
+pub mod glyphs;
 pub mod paint;
 pub mod params;
 
