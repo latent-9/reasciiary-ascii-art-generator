@@ -33,6 +33,10 @@ impl Vector3 {
         self.x * other.x + self.y * other.y + self.z * other.z
     }
 
+    fn negated(self) -> Self {
+        Self::new(-self.x, -self.y, -self.z)
+    }
+
     fn normalized(self) -> Self {
         let length = (self.x * self.x + self.y * self.y + self.z * self.z).sqrt();
         if length <= 1e-12 {
@@ -108,11 +112,31 @@ impl Bound {
             }
         }
     }
+
+    /// How far the nearest point of the turned slab stands in front of its
+    /// middle — the half-extent of the solid along the axis the camera looks
+    /// down.
+    ///
+    /// The bounding sphere's radius answers a nearby question and was what the
+    /// shading used, but it is the wrong number: a drawing is wide and shallow,
+    /// so its sphere is far larger than its depth and every point in it landed
+    /// within a few percent of the middle. Depth cueing then had almost no range
+    /// to work with and the relief it exists to bring out barely showed.
+    fn depth_extent(&self, yaw: f64, pitch: f64) -> f64 {
+        match *self {
+            Self::Slab { half_width, half_height, half_depth } => {
+                // The rotation's z row, read straight off `Rotation::apply`.
+                let extent = (yaw.sin() * pitch.cos()).abs() * half_width
+                    + pitch.sin().abs() * half_height
+                    + (yaw.cos() * pitch.cos()).abs() * half_depth;
+                extent.max(0.001)
+            }
+        }
+    }
 }
 
 pub struct Solid {
     faces: Vec<Face>,
-    radius: f64,
     bound: Bound,
 }
 
@@ -156,20 +180,11 @@ impl Solid {
         let half_depth = tallest / 2.0;
 
         let bound = Bound::Slab { half_width, half_height, half_depth };
-        let radius = (half_width * half_width
-            + half_height * half_height
-            + half_depth * half_depth)
-            .sqrt();
-
         if rows == 0 || columns == 0 {
-            return Self { faces: Vec::new(), radius: radius.max(0.001), bound };
+            return Self { faces: Vec::new(), bound };
         }
 
-        Self {
-            faces: build_faces(&heights, rows, columns, half_depth),
-            radius: radius.max(0.001),
-            bound,
-        }
+        Self { faces: build_faces(&heights, rows, columns, half_depth), bound }
     }
 }
 
@@ -253,6 +268,40 @@ fn build_faces(heights: &[f64], rows: usize, columns: usize, sink: f64) -> Vec<F
     faces
 }
 
+/// One directional light, resolved so the per-face work is two dot products.
+#[derive(Clone, Copy)]
+struct Light {
+    direction: Vector3,
+    /// Halfway between the light and the eye. The camera is orthographic and
+    /// looks straight down the z axis, so this never changes and the Blinn
+    /// highlight costs no more than the diffuse term does.
+    halfway: Vector3,
+    strength: f64,
+}
+
+impl Light {
+    fn new(direction: Vector3, strength: f64) -> Self {
+        let direction = direction.normalized();
+        let eye = Vector3::new(0.0, 0.0, 1.0);
+        Self {
+            direction,
+            halfway: Vector3::new(direction.x, direction.y, direction.z + eye.z).normalized(),
+            strength,
+        }
+    }
+}
+
+/// A key light up and to the left, a fill to the right, and a low back light.
+///
+/// One light was what this had, and a solid built out of boxes has very few
+/// distinct normals: with a single source, every wall facing the same way took
+/// exactly one value and whole flanks of the model went flat. Three separates
+/// them. Following `ascii3d`, which lights its scene with three directionals
+/// for the same reason.
+const KEY: Vector3 = Vector3::new(-0.45, 0.65, 1.0);
+const FILL: Vector3 = Vector3::new(0.85, 0.15, 0.45);
+const BACK: Vector3 = Vector3::new(0.15, -0.70, 0.25);
+
 /// Projects a solid onto a character grid with a depth buffer.
 pub struct Renderer {
     pub solid: Solid,
@@ -262,11 +311,31 @@ pub struct Renderer {
     /// Glyphs the surface is shaded with. A drawing lifted into a solid keeps
     /// the ink ramp it was read with, so head-on it reproduces itself.
     pub ramp: &'static [u8],
-    /// Fixed key light, up and to the left of the camera.
-    pub light: Vector3,
-    /// Floor under the shading so faces turned away stay legible instead of
-    /// dropping to blank cells and tearing holes in the silhouette.
+    lights: [Light; 3],
+    /// The brightest any surface in this rig can be lit, so the diffuse sum can
+    /// be read as a fraction of what is on offer rather than of what three
+    /// lights would add up to if they all struck the same face square on — which
+    /// they cannot, since they point in different directions. Without it the
+    /// brightest part of a render never asks for the heaviest character and the
+    /// top of the ramp goes unused.
+    peak: f64,
+    /// How dark the darkest part of the solid is allowed to get.
+    ///
+    /// A floor rather than a light. Nothing the solid covers should thin out
+    /// into the background, so the whole model sits in the upper part of the
+    /// ramp and the shading moves it around inside that band. Dropped to
+    /// nothing, faces turned away from every light come out as spaces and tear
+    /// holes through the middle of the silhouette.
     pub ambient: f64,
+    /// How hard the specular highlight is, and how tight.
+    ///
+    /// `ascii3d` uses an exponent of 1000, which on a pixel raster puts a pin
+    /// of light on a curved surface. Here a highlight has to survive being
+    /// averaged over a whole cell before it can pick a heavier character, so it
+    /// is spread far wider — at 1000 it would land between cells and never
+    /// appear at all.
+    pub specular: f64,
+    pub shininess: f64,
     /// How much of the shade comes from distance rather than from the light.
     ///
     /// Flat-topped columns all share one normal, so lighting alone paints every
@@ -278,16 +347,61 @@ pub struct Renderer {
 
 impl Renderer {
     pub fn new(solid: Solid) -> Self {
+        let lights = [Light::new(KEY, 1.0), Light::new(FILL, 0.38), Light::new(BACK, 0.22)];
+
+        // A sum of cosines is largest at the direction the sources add up to, so
+        // the best-lit normal this rig can produce is the sum of its directions
+        // and the peak is what that normal collects.
+        let brightest = lights
+            .iter()
+            .fold(Vector3::new(0.0, 0.0, 0.0), |total, light| {
+                Vector3::new(
+                    total.x + light.direction.x * light.strength,
+                    total.y + light.direction.y * light.strength,
+                    total.z + light.direction.z * light.strength,
+                )
+            })
+            .normalized();
+        let peak = lights
+            .iter()
+            .map(|light| light.strength * brightest.dot(light.direction).max(0.0))
+            .sum::<f64>()
+            .max(1e-6);
+
         Self {
             solid,
             yaw: 0.0,
             pitch: 0.0,
             zoom: 1.0,
             ramp: AsciiRamp::Ink.bytes(),
-            light: Vector3::new(-0.45, 0.65, 1.0).normalized(),
-            ambient: 0.18,
-            depth_cueing: 0.45,
+            lights,
+            peak,
+            ambient: 0.42,
+            specular: 0.30,
+            shininess: 24.0,
+            depth_cueing: 0.32,
         }
+    }
+
+    /// How brightly a face pointing along `normal` is lit, from 0 to 1.
+    fn lit(&self, normal: Vector3) -> f64 {
+        // Back faces are deliberately not culled: the solid's base sits behind
+        // its own caps and shows through every hole in the drawing, and culling
+        // it would open those holes onto nothing. Turning the normal to face the
+        // eye is what makes keeping them safe. Taking the absolute value of the
+        // dot products instead — which is what this did — lights a wall pointing
+        // directly away from the key as brightly as one facing it, and that is
+        // most of why a lit solid used to read as one flat mass.
+        let normal = if normal.z < 0.0 { normal.negated() } else { normal };
+
+        let mut diffuse = 0.0;
+        let mut highlight = 0.0;
+        for light in &self.lights {
+            diffuse += light.strength * normal.dot(light.direction).max(0.0);
+            highlight += light.strength * normal.dot(light.halfway).max(0.0).powf(self.shininess);
+        }
+
+        (diffuse / self.peak).min(1.0) + self.specular * (highlight / self.peak).min(1.0)
     }
 
     /// `yaw` is passed rather than read from the field so one prepared renderer
@@ -300,7 +414,7 @@ impl Renderer {
 
         let mut depths = vec![f64::NEG_INFINITY; columns * rows];
         let rotation = Rotation::new(yaw, self.pitch);
-        let radius = self.solid.radius;
+        let depth_extent = self.solid.bound.depth_extent(yaw, self.pitch);
         let (horizontal, vertical) = self.solid.bound.extents(self.pitch);
         let scale = (columns as f64 / (2.0 * horizontal))
             .min(rows as f64 * CELL_ASPECT / (2.0 * vertical))
@@ -319,14 +433,7 @@ impl Renderer {
         };
 
         for face in &self.solid.faces {
-            let normal = rotation.apply(face.normal);
-            // Back faces are deliberately *not* culled. The solid is closed
-            // enough that culling them looks safe, but at these grid sizes a
-            // face lands on a cell centre rather than on a pixel, and dropping
-            // the back half measurably changed which glyph won several cells.
-            // Faces are lit by how squarely they meet the light regardless of
-            // which way they point.
-            let lambert = normal.dot(self.light).abs();
+            let lit = self.lit(rotation.apply(face.normal));
 
             let a = project(face.a);
             let b = project(face.b);
@@ -334,8 +441,8 @@ impl Renderer {
             let d = project(face.d);
 
             let nearness =
-                (((a.z + b.z + c.z + d.z) / 4.0 / radius + 1.0) / 2.0).clamp(0.0, 1.0);
-            let shade = (1.0 - self.depth_cueing) * lambert + self.depth_cueing * nearness;
+                (((a.z + b.z + c.z + d.z) / 4.0 / depth_extent + 1.0) / 2.0).clamp(0.0, 1.0);
+            let shade = (1.0 - self.depth_cueing) * lit + self.depth_cueing * nearness;
             let glyph = AsciiRamp::byte_for_intensity(
                 self.ambient + (1.0 - self.ambient) * shade,
                 self.ramp,
@@ -610,7 +717,11 @@ mod tests {
         let plain = Solid::from_text(DIAMOND, 8.0);
         let padded = Solid::from_text(&format!("{DIAMOND}\n\n   \n\n"), 8.0);
         assert_eq!(plain.faces.len(), padded.faces.len());
-        assert!((plain.radius - padded.radius).abs() < 1e-9);
+        assert_eq!(plain.bound.extents(0.5), padded.bound.extents(0.5));
+        assert_eq!(
+            plain.bound.depth_extent(0.6, 0.5),
+            padded.bound.depth_extent(0.6, 0.5)
+        );
     }
 
     /// A file of spaces is a legitimate thing to open, and every stage below has
