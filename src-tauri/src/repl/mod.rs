@@ -45,6 +45,12 @@ pub fn parse(line: &str) -> Result<Command, String> {
         }
     };
 
+    // `> out.mp4` on its own reaches the split below as one empty segment and
+    // comes back complaining about pipes, which is not what went wrong.
+    if body.is_empty() {
+        return Err("nothing to run".into());
+    }
+
     let mut stages = Vec::new();
     for segment in body.split(|token| token == "|") {
         let (name, rest) = segment
@@ -82,6 +88,9 @@ fn tokenize(line: &str) -> Vec<String> {
     }
     tokens
 }
+
+#[cfg(test)]
+mod tests;
 
 fn read_params(tokens: &[String]) -> Result<Params, String> {
     let mut positional = Vec::new();
