@@ -1,0 +1,256 @@
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fonts/JetBrainsMono-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-display: block;
+}
+
+:root {
+  --bg: #1a1b26;
+  --panel: #16161e;
+  --fg: #c0caf5;
+  --dim: #565f89;
+  --accent: #7aa2f7;
+  --line: #232433;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+  font-family: "JetBrains Mono", ui-monospace, monospace;
+  background: var(--bg);
+  color: var(--fg);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Traffic lights float over the content, so the drag strip is its own element
+   rather than a margin on the layout. */
+.titlebar {
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: 30px;
+  z-index: 10;
+}
+
+.app {
+  display: grid;
+  grid-template-columns: 250px 1fr;
+  height: 100%;
+}
+
+/* Panel */
+
+/* Render has to stay reachable however long the control list grows, so the
+   sections scroll and the footer does not. */
+.panel {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  background: var(--panel);
+  border-right: 1px solid var(--line);
+  padding: 34px 14px 14px;
+  min-height: 0;
+}
+
+.panel-scroll {
+  overflow-y: auto;
+  scrollbar-width: none;
+  min-height: 0;
+}
+
+.panel-scroll::-webkit-scrollbar {
+  display: none;
+}
+
+.panel-footer {
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.brand {
+  font-size: 13px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 18px;
+}
+
+section {
+  margin-bottom: 18px;
+}
+
+h2 {
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-bottom: 8px;
+}
+
+label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--dim);
+  margin: 8px 0 3px;
+}
+
+output {
+  color: var(--fg);
+}
+
+/* Sliders */
+
+input[type="range"] {
+  width: 100%;
+  height: 3px;
+  appearance: none;
+  background: var(--line);
+  border-radius: 2px;
+  outline: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  transition: transform 0.12s;
+}
+
+input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.25);
+}
+
+/* Buttons */
+
+button {
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--fg);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 7px 10px;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s, color 0.12s;
+}
+
+button:hover {
+  border-color: var(--accent);
+}
+
+button.on {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+button.wide {
+  width: 100%;
+}
+
+button.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--panel);
+  padding: 10px;
+  font-size: 12px;
+  margin-top: 4px;
+}
+
+button.primary:hover {
+  filter: brightness(1.12);
+}
+
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+  filter: none;
+}
+
+.segmented {
+  display: flex;
+  gap: 4px;
+}
+
+.segmented button {
+  flex: 1;
+  padding: 6px 0;
+}
+
+.file,
+.hint,
+.status {
+  font-size: 10px;
+  color: var(--dim);
+  margin-top: 7px;
+  line-height: 1.5;
+  word-break: break-all;
+}
+
+.status.error {
+  color: #f7768e;
+}
+
+.status.done {
+  color: #9ece6a;
+}
+
+/* Stage */
+
+.stage {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 34px 16px 16px;
+}
+
+.themes {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.themes button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  padding: 5px 9px;
+}
+
+.swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+}
+
+.screen {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 0;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+#preview {
+  font-family: "JetBrains Mono", monospace;
+  line-height: 1.0;
+  white-space: pre;
+  color: var(--fg);
+}

@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="stylesheet" href="/src/styles.css" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Asciiary</title>
+    <script type="module" src="/src/main.ts" defer></script>
+  </head>
+
+  <body>
+    <div class="titlebar" data-tauri-drag-region></div>
+
+    <div class="app">
+      <aside class="panel">
+        <div class="brand">asciiary</div>
+
+        <div class="panel-scroll">
+        <section>
+          <h2>Drawing</h2>
+          <div class="segmented">
+            <button id="open">Open…</button>
+            <button id="sample">Sample</button>
+          </div>
+          <div class="file" id="file">no drawing yet</div>
+        </section>
+
+        <section>
+          <h2>Shape</h2>
+          <label>Depth<output id="depth-value">8</output></label>
+          <input type="range" id="depth" min="1" max="40" step="1" value="8" />
+          <label>Zoom<output id="zoom-value">0.92</output></label>
+          <input type="range" id="zoom" min="0.25" max="4" step="0.01" value="0.92" />
+          <label>Yaw<output id="yaw-value">34°</output></label>
+          <input type="range" id="yaw" min="-180" max="180" step="1" value="34" />
+          <label>Pitch<output id="pitch-value">29°</output></label>
+          <input type="range" id="pitch" min="-90" max="90" step="1" value="29" />
+        </section>
+
+        <section>
+          <h2>Motion</h2>
+          <div class="segmented" id="motion">
+            <button data-motion="spin" class="on">Spin</button>
+            <button data-motion="still">Still</button>
+          </div>
+          <label>Speed<output id="spin-value">1.20</output></label>
+          <input type="range" id="spin" min="0.1" max="4" step="0.05" value="1.2" />
+          <label>Seconds<output id="duration-value">4</output></label>
+          <input type="range" id="duration" min="1" max="30" step="1" value="4" />
+          <label>FPS<output id="fps-value">20</output></label>
+          <input type="range" id="fps" min="8" max="30" step="1" value="20" />
+        </section>
+
+        <section>
+          <h2>Grid</h2>
+          <label>Columns<output id="columns-value">160</output></label>
+          <input type="range" id="columns" min="40" max="240" step="4" value="160" />
+          <label>Rows<output id="rows-value">48</output></label>
+          <input type="range" id="rows" min="12" max="80" step="2" value="48" />
+        </section>
+
+        <section>
+          <h2>Format</h2>
+          <div class="segmented" id="format">
+            <button data-format="mp4" class="on">MP4</button>
+            <button data-format="gif">GIF</button>
+            <button data-format="png">PNG</button>
+            <button data-format="txt">TXT</button>
+          </div>
+          <div class="hint" id="hint"></div>
+        </section>
+        </div>
+
+        <div class="panel-footer">
+          <button class="wide primary" id="render">Render</button>
+          <div class="status" id="status"></div>
+        </div>
+      </aside>
+
+      <main class="stage">
+        <div class="themes" id="themes"></div>
+        <div class="screen"><pre id="preview"></pre></div>
+      </main>
+    </div>
+  </body>
+</html>
