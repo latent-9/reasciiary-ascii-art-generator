@@ -13,6 +13,8 @@ use std::f64::consts::TAU;
 use std::sync::Mutex;
 use std::time::SystemTime;
 
+use rayon::prelude::*;
+
 use crate::art::canvas::{ink_coverage, AsciiCanvas, CELL_ASPECT};
 use crate::art::generator::{Generator, GlyphGenerator};
 use crate::art::glyphs::{ALPHABET, CELL_PIXELS, CELL_PIXELS_TALL, CELL_PIXELS_WIDE};
@@ -573,32 +575,62 @@ impl Surface {
             return;
         }
 
-        for row in min_y..=max_y {
-            for column in min_x..=max_x {
-                let x = column as f64;
-                let y = row as f64;
-                // Dividing by the signed area normalises the winding, so a point
-                // is inside whenever all three weights are non-negative.
-                let weight_a = edge(b, c, x, y) / area;
-                let weight_b = edge(c, a, x, y) / area;
-                let weight_c = edge(a, b, x, y) / area;
-                if weight_a < -1e-9 || weight_b < -1e-9 || weight_c < -1e-9 {
-                    continue;
-                }
+        // Each weight is an edge function divided by the signed area, which
+        // normalises the winding: a point is inside whenever all three are
+        // non-negative. Every one of them is affine in x and y, so its value at
+        // the next sample is its value at this one plus a constant — and the
+        // inner loop becomes three adds where it was three edge functions and
+        // three divisions. On a grid this fine that is the difference between
+        // most of a frame and a small part of one.
+        let scale = 1.0 / area;
+        let (step_x, step_y) = (
+            [
+                -(c.y - b.y) * scale,
+                -(a.y - c.y) * scale,
+                -(b.y - a.y) * scale,
+            ],
+            [
+                (c.x - b.x) * scale,
+                (a.x - c.x) * scale,
+                (b.x - a.x) * scale,
+            ],
+        );
 
-                let z = weight_a * a.z + weight_b * b.z + weight_c * c.z;
-                self.sample(row * self.width + column, z as f32, tone);
+        let (x, y) = (min_x as f64, min_y as f64);
+        let mut down = [
+            edge(b, c, x, y) * scale,
+            edge(c, a, x, y) * scale,
+            edge(a, b, x, y) * scale,
+        ];
+
+        for row in min_y..=max_y {
+            let mut weight = down;
+            for column in min_x..=max_x {
+                if weight[0] >= -1e-9 && weight[1] >= -1e-9 && weight[2] >= -1e-9 {
+                    let z = weight[0] * a.z + weight[1] * b.z + weight[2] * c.z;
+                    self.sample(row * self.width + column, z as f32, tone);
+                }
+                for (value, step) in weight.iter_mut().zip(&step_x) {
+                    *value += step;
+                }
+            }
+            for (value, step) in down.iter_mut().zip(&step_y) {
+                *value += step;
             }
         }
     }
 
     /// Gathers each cell's samples and takes the character nearest them.
     ///
+    /// Rows are independent — they read one shared buffer and write disjoint
+    /// runs of another — and choosing characters is the largest single cost in a
+    /// frame, so they are shared out across cores. That is most of what makes a
+    /// preview keep up with a spin.
     fn read_into(&self, canvas: &mut AsciiCanvas) {
         let columns = self.columns;
         canvas
             .glyphs
-            .chunks_mut(columns.max(1))
+            .par_chunks_mut(columns.max(1))
             .enumerate()
             .for_each(|(row, line)| {
                 let mut cell = [0f32; CELL_PIXELS];

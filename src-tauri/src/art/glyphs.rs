@@ -103,6 +103,8 @@ struct Template {
 /// look like one. With the two questions separated the shading is free to run
 /// all the way down to `.` and the form comes back.
 pub struct Alphabet {
+    /// Ordered lightest to heaviest, which is what lets [`Alphabet::matched`]
+    /// stop early.
     templates: Vec<Template>,
     /// Brightness to the ramp character carrying that much ink.
     ramp: Vec<u8>,
@@ -157,11 +159,12 @@ impl Alphabet {
 
         let ramp = grade(&coverages, range);
 
-        let templates = coverages
+        let mut templates: Vec<Template> = coverages
             .into_iter()
             .filter(|(byte, _)| MARKS.contains(byte))
             .map(|(byte, coverage)| Template::describe(byte, coverage, range))
             .collect();
+        templates.sort_by(|one, other| one.weight.total_cmp(&other.weight));
 
         Self { templates, ramp }
     }
@@ -218,6 +221,15 @@ impl Alphabet {
     /// looks like. Taking each side's own level out first and comparing what is
     /// left as directions puts shape on a scale of its own, and leaves the level
     /// question to be asked once, plainly, against a [`Template::weight`].
+    /// Scoring all ninety-four is most of what a frame costs, and almost all of
+    /// it is wasted: `alignment` is a dot product of two unit vectors, so
+    /// `1 - alignment` is never negative and the level term alone is already a
+    /// lower bound on a candidate's score. Templates run lightest to heaviest,
+    /// so walking outward from the cell's own brightness takes them in order of
+    /// that bound — and the first one whose bound alone exceeds the best score
+    /// so far ends the search, because everything still unvisited lies further
+    /// out and scores at least as badly. The answer is the same one the full
+    /// sweep gives; only the work is smaller.
     fn matched(&self, cell: &Cell, mean: f32) -> u8 {
         let Some(shape) = direction_of(cell, mean) else {
             return self.graded(mean);
@@ -225,13 +237,38 @@ impl Alphabet {
 
         let mut best = self.graded(mean);
         let mut best_score = f32::INFINITY;
-        for template in &self.templates {
+
+        let start = self.templates.partition_point(|template| template.weight < mean);
+        let (mut lighter, mut heavier) = (start, start);
+        while lighter > 0 || heavier < self.templates.len() {
+            // Whichever of the two frontiers is nearer the cell's brightness,
+            // so candidates arrive in order of their lower bound.
+            let take_heavier = match (lighter > 0, heavier < self.templates.len()) {
+                (true, true) => {
+                    self.templates[heavier].weight - mean
+                        <= mean - self.templates[lighter - 1].weight
+                }
+                (_, only_heavier) => only_heavier,
+            };
+            let index = if take_heavier { heavier } else { lighter - 1 };
+            if take_heavier {
+                heavier += 1;
+            } else {
+                lighter -= 1;
+            }
+
+            let template = &self.templates[index];
+            let level = template.weight - mean;
+            let floor = LEVEL_WEIGHT * level * level;
+            if floor >= best_score {
+                break;
+            }
+
             let mut alignment = 0.0;
             for (sample, ink) in shape.iter().zip(&template.shape) {
                 alignment += sample * ink;
             }
-            let level = template.weight - mean;
-            let score = 1.0 - alignment + LEVEL_WEIGHT * level * level;
+            let score = 1.0 - alignment + floor;
             if score < best_score {
                 best_score = score;
                 best = template.byte;
@@ -514,4 +551,52 @@ mod tests {
         assert!(RAMP.iter().all(|byte| MARKS.contains(byte)));
     }
 
+    /// Stopping the search early is only worth doing if it stops at the same
+    /// answer, so this measures it against the sweep it replaced.
+    #[test]
+    fn the_shortened_search_finds_what_the_full_one_would() {
+        let sweep = |cell: &Cell, mean: f32| {
+            let shape = direction_of(cell, mean).expect("these cells all vary");
+            ALPHABET
+                .templates
+                .iter()
+                .map(|template| {
+                    let alignment: f32 = shape
+                        .iter()
+                        .zip(&template.shape)
+                        .map(|(sample, ink)| sample * ink)
+                        .sum();
+                    let level = template.weight - mean;
+                    (1.0 - alignment + LEVEL_WEIGHT * level * level, template.byte)
+                })
+                .fold((f32::INFINITY, SPACE), |best, next| {
+                    if next.0 < best.0 {
+                        next
+                    } else {
+                        best
+                    }
+                })
+                .1
+        };
+
+        // A sloped edge at every brightness, which is the case the matcher
+        // exists for and the one where the two halves of the score compete.
+        // From one step above blank: an edge at zero brightness is not an edge,
+        // and has no direction to match against.
+        for step in 1..16 {
+            let level = step as f32 / 15.0;
+            let mut cell = [0f32; CELL_PIXELS];
+            for y in 0..CELL_PIXELS_TALL {
+                let across = y as f32 / (CELL_PIXELS_TALL - 1) as f32;
+                let x = (across * (CELL_PIXELS_WIDE - 1) as f32).round() as usize;
+                cell[y * CELL_PIXELS_WIDE + x] = level;
+            }
+            let mean = mean_of(&cell);
+            assert_eq!(
+                ALPHABET.matched(&cell, mean),
+                sweep(&cell, mean),
+                "the search stopped short at brightness {level}"
+            );
+        }
+    }
 }

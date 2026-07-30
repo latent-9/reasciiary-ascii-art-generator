@@ -35,3 +35,18 @@ gif = "0.14.2"
 thiserror = "2.0.19"
 tauri-plugin-dialog = "2.7.2"
 
+# `tauri dev` runs a debug build, and this app spends its time in tight float
+# loops over a few hundred thousand samples a frame. Unoptimised those run about
+# thirty times slower than the release build — slower than the preview's own
+# frame interval, so the window skipped frames and a spin came out juddering.
+# The renderer is not what anybody is here to step through in a debugger, and
+# `2` costs a few seconds of compile time to make the app usable while it is
+# being worked on.
+[profile.dev]
+opt-level = 2
+
+# Dependencies are compiled once and then cached, so there is nothing to trade:
+# take the fastest build of them available.
+[profile.dev.package."*"]
+opt-level = 3
+
