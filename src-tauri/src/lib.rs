@@ -3,7 +3,7 @@ pub mod repl;
 
 use std::collections::HashMap;
 
-use art::export::{Format, Settings};
+use art::export::{self, Format, Settings};
 use art::generator::Generator;
 use art::params::Params;
 use art::{filter, generator, Pipeline};
@@ -93,13 +93,32 @@ async fn preview(request: Request, time: f64) -> Result<String, String> {
     .await
 }
 
-/// How long one loop of the current settings runs, so the preview can spin at
-/// the rate the export will.
+/// Everything the preview needs to turn at the rate the export will.
+///
+/// The rate is not simply the spin the sliders carry: an export is rounded to a
+/// whole number of loops so it can end where it began, and the preview has to
+/// be rounded the same way or the window shows a spin nothing ever writes.
+#[derive(serde::Serialize)]
+pub struct Motion {
+    /// Seconds of generator time in one full loop. `null` for a still.
+    period: Option<f64>,
+    /// Whole loops an export covers.
+    loops: usize,
+    /// How long that export runs, in seconds.
+    seconds: f64,
+}
+
 #[tauri::command]
-async fn loop_duration(request: Request) -> Result<Option<f64>, String> {
+async fn motion(request: Request) -> Result<Motion, String> {
     off_the_ui_thread(move || {
-        let (generator, _, _) = request.build()?;
-        Ok(generator.loop_duration())
+        let (generator, _, params) = request.build()?;
+        let seconds = params.f64("duration", 4.0)?;
+        let period = generator.loop_duration();
+        Ok(Motion {
+            period,
+            loops: period.map_or(1, |period| export::whole_loops(period, seconds)),
+            seconds,
+        })
     })
     .await
 }
@@ -158,7 +177,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![preview, loop_duration, render_art])
+        .invoke_handler(tauri::generate_handler![preview, motion, render_art])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

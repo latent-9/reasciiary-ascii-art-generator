@@ -142,15 +142,19 @@ fn stream(
     ))
 }
 
-/// Sampling spans exactly one `loop_duration` and excludes its endpoint, which
-/// is what makes a periodic generator loop seamlessly without knowing it is
-/// being exported.
+/// Sampling spans a whole number of `loop_duration`s and excludes the endpoint,
+/// which is what makes a periodic generator loop seamlessly without knowing it
+/// is being exported. [`export::whole_loops`] is why it is a whole number rather
+/// than exactly one.
 fn frame_times(pipeline: &Pipeline, settings: &Settings) -> Vec<f64> {
     let count = settings.frame_count();
     match pipeline.generator.loop_duration() {
-        Some(period) if settings.format.is_animated() => (0..count)
-            .map(|index| index as f64 / count as f64 * period)
-            .collect(),
+        Some(period) if settings.format.is_animated() => {
+            let span = period * export::whole_loops(period, settings.duration) as f64;
+            (0..count)
+                .map(|index| index as f64 / count as f64 * span)
+                .collect()
+        }
         _ => (0..count)
             .map(|index| index as f64 / settings.frames_per_second as f64)
             .collect(),

@@ -140,6 +140,26 @@ impl Settings {
     }
 }
 
+/// How many whole loops an export of `seconds` covers at this `period`.
+///
+/// Sampling exactly one loop is what lets a periodic generator come back to
+/// where it started without knowing it is being exported — but sampling exactly
+/// *one* also meant the speed control did nothing. Whatever rate was chosen, a
+/// file showed a single revolution stretched across its whole length, so only
+/// the length changed how fast it looked, and the window's preview span at a
+/// rate no export ever ran at.
+///
+/// Rounding to the nearest whole loop keeps the seam and gives the rate back:
+/// the export runs at the chosen speed to within half a loop over its length,
+/// and a rate too slow to complete one loop still completes one rather than
+/// stretching the file out to match.
+pub fn whole_loops(period: f64, seconds: f64) -> usize {
+    if !period.is_finite() || period <= 0.0 || !seconds.is_finite() || seconds <= 0.0 {
+        return 1;
+    }
+    ((seconds / period).round() as i64).max(1) as usize
+}
+
 /// Rounds a pixel size up to a multiple of two.
 ///
 /// H.264 encodes in macroblocks and rejects an odd frame, and a grid times a
@@ -205,4 +225,38 @@ pub fn gif_args(width: u32, height: u32, fps: u32, out: &str) -> Vec<String> {
         out.into(),
     ]);
     args
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_export_covers_the_loops_its_length_has_room_for() {
+        // A four second file at the default 1.2 rad/s spin, whose loop is 5.2s.
+        assert_eq!(whole_loops(5.24, 4.0), 1);
+        // Thirty seconds at the fastest spin the window offers.
+        assert_eq!(whole_loops(1.57, 30.0), 19);
+        assert_eq!(whole_loops(2.0, 10.0), 5);
+    }
+
+    /// A file has to move. Rounding down to nothing would write a frozen frame
+    /// from a control that plainly says it is spinning.
+    #[test]
+    fn a_loop_too_slow_to_finish_still_finishes() {
+        assert_eq!(whole_loops(62.8, 1.0), 1);
+        assert_eq!(whole_loops(100.0, 0.5), 1);
+    }
+
+    /// `loop_duration` is a generator's own answer, and a degenerate one must
+    /// not reach the sampler as a zero-length or NaN span.
+    #[test]
+    fn a_nonsense_loop_falls_back_to_one() {
+        assert_eq!(whole_loops(0.0, 4.0), 1);
+        assert_eq!(whole_loops(-3.0, 4.0), 1);
+        assert_eq!(whole_loops(f64::NAN, 4.0), 1);
+        assert_eq!(whole_loops(f64::INFINITY, 4.0), 1);
+        assert_eq!(whole_loops(2.0, 0.0), 1);
+        assert_eq!(whole_loops(2.0, f64::NAN), 1);
+    }
 }

@@ -136,8 +136,15 @@ function fitPreview() {
 
 const FRAME_MS = 80;
 
+/// What the export will do, mirrored so the preview turns at the same rate.
+type Motion = {
+  period: number | null;
+  loops: number;
+  seconds: number;
+};
+
 let time = 0;
-let period: number | null = null;
+let motion: Motion = { period: null, loops: 1, seconds: 4 };
 let pending = false;
 /// Whether the frame on screen is out of date. A still holds one image for as
 /// long as nobody touches a control, and asking the backend to redraw it a
@@ -149,13 +156,14 @@ const invalidate = () => {
   stale = true;
 };
 
-async function refreshPeriod() {
+async function refreshMotion() {
   if (!hasDrawing()) return;
   try {
-    period = await invoke<number | null>("loop_duration", { request: request() });
+    motion = await invoke<Motion>("motion", { request: request() });
   } catch {
-    period = null;
+    motion = { period: null, loops: 1, seconds: slider("duration") };
   }
+  updateHint();
   invalidate();
 }
 
@@ -178,8 +186,13 @@ async function tick() {
 }
 
 setInterval(() => {
-  if (!state.still && period) {
-    time = (time + FRAME_MS / 1000) % period;
+  const { period, loops, seconds } = motion;
+  if (!state.still && period && seconds > 0) {
+    // Not the raw spin rate: the export is rounded to whole loops, so the frame
+    // shown here is only the frame that gets written if the preview covers the
+    // same `loops` turns across the same `seconds`.
+    const rate = (loops * period) / seconds;
+    time = (time + (FRAME_MS / 1000) * rate) % period;
     invalidate();
   }
   if (stale) tick();
@@ -191,6 +204,11 @@ function updateHint() {
       "a GIF this long usually lands over X's 15 MB limit — MP4 holds up better past ~12s";
   } else if (state.format === "txt" || state.format === "png") {
     hint.textContent = "a still — only the first frame is written";
+  } else if (!state.still && motion.period) {
+    // The speed is rounded to whole turns so the loop closes, and rounding is
+    // only fair to the person moving the slider if they can see where it landed.
+    const turns = motion.loops;
+    hint.textContent = `${turns} full ${turns === 1 ? "turn" : "turns"} in ${motion.seconds}s`;
   } else {
     hint.textContent = "";
   }
@@ -214,8 +232,9 @@ function bindSliders() {
       show();
       invalidate();
       if (name === "columns" || name === "rows") fitPreview();
-      if (name === "spin") refreshPeriod();
-      if (name === "duration") updateHint();
+      // Both of these move how many whole turns an export lands on, which is
+      // what the preview paces itself by.
+      if (name === "spin" || name === "duration") refreshMotion();
     });
   }
 }
@@ -253,7 +272,7 @@ async function loadDrawing(label: string) {
   status.className = "status";
   status.textContent = "";
   time = 0;
-  await refreshPeriod();
+  await refreshMotion();
   fitPreview();
   invalidate();
   tick();
@@ -295,7 +314,7 @@ renderButton.addEventListener("click", async () => {
 bindSliders();
 bindSegmented("motion", (value) => {
   state.still = value === "still";
-  refreshPeriod();
+  refreshMotion();
 });
 bindSegmented("format", (value) => {
   state.format = value;
