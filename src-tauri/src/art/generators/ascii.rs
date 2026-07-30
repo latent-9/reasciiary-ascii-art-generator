@@ -319,11 +319,13 @@ pub struct Renderer {
     peak: f64,
     /// How dark the darkest part of the solid is allowed to get.
     ///
-    /// A floor rather than a light. Nothing the solid covers should thin out
-    /// into the background, so the whole model sits in the upper part of the
-    /// alphabet and the shading moves it around inside that band. Dropped to
-    /// nothing, faces turned away from every light come out as spaces and tear
-    /// holes through the middle of the silhouette.
+    /// This used to be a floor holding the whole model up in the heavy end of
+    /// the alphabet, because a face turned away from every light came out as a
+    /// space and tore a hole through the silhouette. Coverage decides what is
+    /// background now (see [`super::super::glyphs::Alphabet`]), so a dark face
+    /// is just dark and this can be what it says it is: a little light bouncing
+    /// around the scene. The shading gets the whole ramp to move through, which
+    /// is the difference between a solid you can read the shape of and a slab.
     pub ambient: f64,
     /// How hard the specular highlight is, and how tight.
     ///
@@ -373,7 +375,7 @@ impl Renderer {
             zoom: 1.0,
             peak,
             lights,
-            ambient: 0.42,
+            ambient: 0.08,
             specular: 0.30,
             shininess: 24.0,
             depth_cueing: 0.32,
@@ -485,10 +487,8 @@ impl Renderer {
         let cue = self.depth_cueing;
         let lit = (1.0 - cue) * diffuse + cue * 0.5 + self.specular * highlight;
 
-        // Everything the solid covers starts at `ambient` and climbs from
-        // there, so the drawing reads as one dense object rather than as a
-        // scatter of light glyphs with the background showing between them. The
-        // background is the only thing left at zero, and zero is a space.
+        // Everything the solid covers starts at `ambient` and climbs from there,
+        // over very nearly the whole range the alphabet can draw.
         Tone {
             base: (self.ambient + (1.0 - self.ambient) * lit) as f32,
             gain: ((1.0 - self.ambient) * cue / (2.0 * depth_extent)) as f32,
@@ -514,7 +514,6 @@ impl Tone {
 /// characters.
 struct Surface {
     columns: usize,
-    rows: usize,
     width: usize,
     height: usize,
     shade: Vec<f32>,
@@ -527,7 +526,6 @@ impl Surface {
         let height = rows * CELL_PIXELS_TALL;
         Self {
             columns,
-            rows,
             width,
             height,
             shade: vec![0.0; width * height],
@@ -595,27 +593,40 @@ impl Surface {
     }
 
     /// Gathers each cell's samples and takes the character nearest them.
+    ///
     fn read_into(&self, canvas: &mut AsciiCanvas) {
-        let mut cell = [0f32; CELL_PIXELS];
-        for row in 0..self.rows {
-            for column in 0..self.columns {
-                let mut lit = false;
-                for y in 0..CELL_PIXELS_TALL {
-                    let from = (row * CELL_PIXELS_TALL + y) * self.width
-                        + column * CELL_PIXELS_WIDE;
-                    let into = y * CELL_PIXELS_WIDE;
-                    let samples = &self.shade[from..from + CELL_PIXELS_WIDE];
-                    lit |= samples.iter().any(|&sample| sample > 0.0);
-                    cell[into..into + CELL_PIXELS_WIDE].copy_from_slice(samples);
+        let columns = self.columns;
+        canvas
+            .glyphs
+            .chunks_mut(columns.max(1))
+            .enumerate()
+            .for_each(|(row, line)| {
+                let mut cell = [0f32; CELL_PIXELS];
+                for (column, glyph) in line.iter_mut().enumerate() {
+                    // Whether the solid reaches this cell, which the depth
+                    // buffer knows exactly. Asking the shading instead — "did
+                    // any light land here?" — cannot tell a hole from a face
+                    // pointing away from every lamp, and that conflation is what
+                    // the ambient floor used to exist to paper over.
+                    let mut covered = false;
+                    for y in 0..CELL_PIXELS_TALL {
+                        let from = (row * CELL_PIXELS_TALL + y) * self.width
+                            + column * CELL_PIXELS_WIDE;
+                        let into = y * CELL_PIXELS_WIDE;
+                        covered |= self.depths[from..from + CELL_PIXELS_WIDE]
+                            .iter()
+                            .any(|depth| depth.is_finite());
+                        cell[into..into + CELL_PIXELS_WIDE]
+                            .copy_from_slice(&self.shade[from..from + CELL_PIXELS_WIDE]);
+                    }
+                    // Most of a frame is empty background, and matching it
+                    // against ninety-four glyphs to be told it is a space is the
+                    // single biggest cost in here.
+                    if covered {
+                        *glyph = ALPHABET.nearest(&cell);
+                    }
                 }
-                // Most of a frame is empty background, and matching it against
-                // ninety-five glyphs to be told it is a space is the single
-                // biggest cost in here.
-                if lit {
-                    canvas.glyphs[row * self.columns + column] = ALPHABET.nearest(&cell);
-                }
-            }
-        }
+            });
     }
 }
 

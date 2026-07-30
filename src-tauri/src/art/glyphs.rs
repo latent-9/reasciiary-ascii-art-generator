@@ -43,8 +43,28 @@ pub type Cell = [f32; CELL_PIXELS];
 const SUPERSAMPLE: usize = 8;
 
 /// The printable ASCII range, which is the candidate set `ascii3d` uses too.
+/// The space at the head of it is not a candidate: see [`Alphabet`].
 const FIRST: u8 = b' ';
 const LAST: u8 = b'~';
+
+/// Which of them a cell may actually be drawn with.
+///
+/// `ascii3d` matches against all ninety-five and is right to: it renders smooth
+/// meshes, where a cell that is not flat is nearly always a real edge. A drawing
+/// lifted by ink coverage is not smooth — it is terraced, so small faces at
+/// different angles meet inside a single cell all over the interior, and the
+/// matcher gets asked about far more cells than a mesh would ever produce.
+///
+/// Answering those with the full range put `g`, `j`, `m`, `p`, `q` and `w` in
+/// the middle of the picture, and what the eye does with a row of lowercase
+/// letters is read it. They win on ink statistics honestly — a bowl and a
+/// descender really do cover the lower half of a cell the way a lit ledge does —
+/// but a mark that is busy being a word cannot also be a piece of a surface. So
+/// the candidates are the marks that carry a direction and nothing else: every
+/// punctuation character, `0` for a round blob, and the upper-case letters drawn
+/// as bare strokes. Nothing here spells anything, and every slope, corner and
+/// weight the matcher needs is still on offer.
+const MARKS: &[u8] = b"!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~0AHIJKLMNTVWXYZ";
 
 /// How much the amount of light in a cell counts against where in the cell it
 /// falls, when the two disagree.
@@ -71,8 +91,21 @@ struct Template {
     shape: Cell,
 }
 
+/// Every mark a covered cell can be drawn with.
+///
+/// A space is deliberately not among them. Whether a cell is background is a
+/// question about whether the solid reaches it, and the rasteriser already
+/// knows the answer exactly; letting it be decided a second time by whether the
+/// cell came out dark is what forced the shading up into the heavy end of the
+/// alphabet. The unlit side of a solid had to stay bright enough not to be
+/// mistaken for a hole, so a render spanned `+` to `@` — eleven characters that
+/// all read as the same grey mass, which is most of why a lit solid did not
+/// look like one. With the two questions separated the shading is free to run
+/// all the way down to `.` and the form comes back.
 pub struct Alphabet {
     templates: Vec<Template>,
+    /// Brightness to the ramp character carrying that much ink.
+    ramp: Vec<u8>,
 }
 
 /// Rasterised once. Ninety-five glyphs at eight times resolution is real work,
@@ -122,12 +155,15 @@ impl Alphabet {
             .fold(0.0, f32::max)
             .max(f32::EPSILON);
 
+        let ramp = grade(&coverages, range);
+
         let templates = coverages
             .into_iter()
+            .filter(|(byte, _)| MARKS.contains(byte))
             .map(|(byte, coverage)| Template::describe(byte, coverage, range))
             .collect();
 
-        Self { templates }
+        Self { templates, ramp }
     }
 
     /// The character to draw `cell` with, whose samples run from 0 for unlit to
@@ -156,9 +192,16 @@ impl Alphabet {
         let mean = total / CELL_PIXELS as f32;
 
         if heaviest - lightest < STRUCTURE {
-            return graded(mean);
+            return self.graded(mean);
         }
         self.matched(cell, mean)
+    }
+
+    /// The ramp character holding as near as possible to `brightness` worth of
+    /// ink.
+    fn graded(&self, brightness: f32) -> u8 {
+        let step = brightness.clamp(0.0, 1.0) * (self.ramp.len() - 1) as f32;
+        self.ramp[step.round() as usize]
     }
 
     /// Picks the glyph closest to the cell in two respects at once: how much
@@ -174,13 +217,13 @@ impl Alphabet {
     /// cheapest answer becomes whichever glyph is faintest, whatever the cell
     /// looks like. Taking each side's own level out first and comparing what is
     /// left as directions puts shape on a scale of its own, and leaves the level
-    /// question to be asked once, plainly, against [`Alphabet::range`].
+    /// question to be asked once, plainly, against a [`Template::weight`].
     fn matched(&self, cell: &Cell, mean: f32) -> u8 {
         let Some(shape) = direction_of(cell, mean) else {
-            return graded(mean);
+            return self.graded(mean);
         };
 
-        let mut best = SPACE;
+        let mut best = self.graded(mean);
         let mut best_score = f32::INFINITY;
         for template in &self.templates {
             let mut alignment = 0.0;
@@ -229,18 +272,64 @@ fn direction_of(cell: &Cell, mean: f32) -> Option<Cell> {
 /// across a lit face is not — a face graded by the ramp and a face picked out
 /// glyph by glyph look completely different, and the boundary between them
 /// should fall where the picture has one.
-const STRUCTURE: f32 = 0.16;
+///
+/// It is a difference between two brightnesses, so it only means anything
+/// relative to how much brightness there is to differ by. At `0.16` it was
+/// calibrated against a render that spanned `0.42` to `1.0`; the shading now
+/// runs from near nothing, the same geometry varies about twice as hard, and at
+/// the old figure half the interior of a solid crossed it. What came back was a
+/// mid-weight letter for every cell — a surface spelling out `{7%QMgj` instead
+/// of shading, which is a worse picture than either technique alone gives.
+const STRUCTURE: f32 = 0.34;
 
-/// `emilwidlund/ASCII`'s default set, which is its whole technique: twenty
-/// characters "in brightness order dark -> light", indexed by brightness. Short
-/// enough that consecutive steps are visibly different, which the ninety-five
-/// ordered by coverage are not — that ordering puts `%`, `&`, `M` and `W` beside
-/// each other, and a face graded through them reads as noise.
-const RAMP: &[u8] = b" .:,'-^=*+?!|0#X%WM@";
+/// `emilwidlund/ASCII`'s default set, which is its whole technique: characters
+/// "in brightness order dark -> light", indexed by brightness. Short enough that
+/// consecutive steps are visibly different, which the ninety-four ordered by
+/// coverage are not — that ordering puts `%`, `&`, `M` and `W` beside each
+/// other, and a face graded through them reads as noise.
+///
+/// Its leading space is missing here because background is settled by coverage;
+/// see [`Alphabet`].
+const RAMP: &[u8] = b".:,'-^=*+?!|0#X%WM@";
 
-fn graded(brightness: f32) -> u8 {
-    let step = brightness.clamp(0.0, 1.0) * (RAMP.len() - 1) as f32;
-    RAMP[step.round() as usize]
+/// How finely brightness is resolved before it is turned into a character.
+/// Well past what nineteen characters can distinguish, so the table is exact
+/// wherever two of them are close together.
+const RAMP_STEPS: usize = 256;
+
+/// Brightness to ramp character, by how much ink each one actually lays down in
+/// this font.
+///
+/// [`RAMP`] is ordered by eye against whatever face its author was looking at,
+/// and its steps are not evenly spaced in any case — `'` and `-` are nearly the
+/// same weight while `|` to `0` is a jump. Indexing it by position therefore
+/// spends the same range of brightness on each, which is a ramp that lies about
+/// its own middle: a face at half brightness comes out at whatever the tenth
+/// character happens to weigh. Every glyph has just been measured, so ask for
+/// the one whose ink is nearest instead and a shade means what it says. Any
+/// character the ordering had out of place is fixed by the same stroke.
+fn grade(coverages: &[(u8, Cell)], range: f32) -> Vec<u8> {
+    let ink: Vec<(u8, f32)> = RAMP
+        .iter()
+        .map(|&byte| {
+            let coverage = coverages
+                .iter()
+                .find(|(candidate, _)| *candidate == byte)
+                .map_or(0.0, |(_, coverage)| mean_of(coverage));
+            (byte, coverage / range)
+        })
+        .collect();
+
+    (0..RAMP_STEPS)
+        .map(|step| {
+            let brightness = step as f32 / (RAMP_STEPS - 1) as f32;
+            ink.iter()
+                .min_by(|one, other| {
+                    (one.1 - brightness).abs().total_cmp(&(other.1 - brightness).abs())
+                })
+                .map_or(SPACE, |(byte, _)| *byte)
+        })
+        .collect()
 }
 
 /// Draws one glyph into `target` where [`super::paint::Painter`] would put it,
@@ -326,11 +415,41 @@ mod tests {
         );
     }
 
-    /// Nothing lit is nothing drawn. A blank patch has to come back blank or a
-    /// render fogs over with whichever glyph is faintest.
+    /// The alphabet is asked only about cells the solid covers, so the darkest
+    /// answer it can give is the faintest mark rather than nothing at all. A
+    /// space here would punch a hole through the middle of a silhouette.
     #[test]
-    fn an_unlit_cell_is_a_space() {
-        assert_eq!(ALPHABET.nearest(&[0.0; CELL_PIXELS]), SPACE);
+    fn even_an_unlit_cell_gets_a_mark() {
+        assert_eq!(ALPHABET.nearest(&[0.0; CELL_PIXELS]), b'.');
+        assert!(ALPHABET
+            .ramp
+            .iter()
+            .chain(ALPHABET.templates.iter().map(|template| &template.byte))
+            .all(|&byte| byte != SPACE));
+    }
+
+    /// The whole reason the ramp is measured rather than indexed: brightness has
+    /// to buy the character carrying that much ink, so a shade means what it
+    /// says and the range is spent where the picture actually varies.
+    #[test]
+    fn the_ramp_runs_from_faint_to_solid_without_going_back() {
+        let weight = |byte: u8| {
+            ALPHABET
+                .templates
+                .iter()
+                .find(|template| template.byte == byte)
+                .expect("every ramp character is a template")
+                .weight
+        };
+
+        let mut previous = 0.0;
+        for step in 0..RAMP_STEPS {
+            let ink = weight(ALPHABET.ramp[step]);
+            assert!(ink >= previous, "the ramp goes back on itself at step {step}");
+            previous = ink;
+        }
+        assert_eq!(ALPHABET.graded(0.0), b'.');
+        assert_eq!(ALPHABET.graded(1.0), b'@');
     }
 
     /// A patch that is lit everywhere wants a glyph that covers everywhere.
@@ -384,13 +503,15 @@ mod tests {
         assert_eq!(low, b'_');
     }
 
-    /// Every candidate is a character the exporter can actually draw.
+    /// Every candidate is a character the exporter can actually draw, and none
+    /// of them is a space or anything that would read as a word.
     #[test]
-    fn the_alphabet_is_printable_ascii() {
-        assert_eq!(ALPHABET.templates.len(), 95);
-        assert!(ALPHABET
-            .templates
-            .iter()
-            .all(|template| template.byte.is_ascii_graphic() || template.byte == SPACE));
+    fn the_alphabet_is_marks_and_only_marks() {
+        assert_eq!(ALPHABET.templates.len(), MARKS.len());
+        assert!(ALPHABET.templates.iter().all(|template| {
+            template.byte.is_ascii_graphic() && !template.byte.is_ascii_lowercase()
+        }));
+        assert!(RAMP.iter().all(|byte| MARKS.contains(byte)));
     }
+
 }
