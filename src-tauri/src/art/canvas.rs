@@ -24,6 +24,20 @@ impl AsciiColor {
         }
         Self { red: channel(r), green: channel(g), blue: channel(b) }
     }
+
+    /// Reads `#rrggbb`, or `rrggbb` — the window sends the CSS form it already
+    /// holds, and a typed line should not need the `#` escaped from the shell.
+    pub fn from_hex(text: &str) -> Result<Self, String> {
+        let digits = text.strip_prefix('#').unwrap_or(text);
+        if digits.len() != 6 {
+            return Err(format!("`{text}` is not a colour — write one as #rrggbb"));
+        }
+        let channel = |at: usize| {
+            u8::from_str_radix(&digits[at..at + 2], 16)
+                .map_err(|_| format!("`{text}` is not a colour — write one as #rrggbb"))
+        };
+        Ok(Self { red: channel(0)?, green: channel(2)?, blue: channel(4)? })
+    }
 }
 
 pub const SPACE: u8 = b' ';
@@ -180,5 +194,29 @@ impl AsciiRamp {
         }
         let clamped = intensity.clamp(0.0, 1.0);
         ramp[(clamped * (ramp.len() - 1) as f64).round() as usize]
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The `#` has to be optional both ways: the window sends the CSS colour it
+    /// already holds, which carries one, and a typed line would rather not
+    /// quote it past the shell.
+    #[test]
+    fn a_colour_reads_with_or_without_its_hash() {
+        let cheese = AsciiColor { red: 245, green: 232, blue: 199 };
+        assert_eq!(AsciiColor::from_hex("#f5e8c7"), Ok(cheese));
+        assert_eq!(AsciiColor::from_hex("F5E8C7"), Ok(cheese));
+    }
+
+    /// A colour that does not parse has to say so rather than silently falling
+    /// back, or an export quietly comes out in the wrong scheme.
+    #[test]
+    fn anything_that_is_not_six_hex_digits_is_refused() {
+        for text in ["#fff", "", "#gggggg", "#f5e8c7f"] {
+            assert!(AsciiColor::from_hex(text).is_err(), "`{text}` was accepted");
+        }
     }
 }

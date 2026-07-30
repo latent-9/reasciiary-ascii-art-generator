@@ -7,6 +7,8 @@
 
 use std::path::PathBuf;
 
+use super::canvas::AsciiColor;
+
 /// Where ffmpeg is installed when it is not on the PATH.
 ///
 /// Homebrew's two prefixes, MacPorts', and the system one.
@@ -96,7 +98,20 @@ pub struct Settings {
     /// Pixels per point. Two gives a Retina-sharp frame at a size timelines
     /// still accept.
     pub scale: f64,
+    /// What the characters are drawn in, and what is behind them.
+    ///
+    /// The window picks these so an exported file matches the preview it was
+    /// framed against. They were fixed in the code before, which meant every
+    /// theme in the window wrote out the same near-white on near-black.
+    pub ink: AsciiColor,
+    pub paper: AsciiColor,
 }
+
+/// Near-white on near-black. Not pure either way: a solid `#ffffff` glyph on
+/// `#000000` rings on an OLED panel and bleeds through video compression, and
+/// the MP4 encoder below is where that shows first.
+pub const INK: AsciiColor = AsciiColor { red: 231, green: 231, blue: 231 };
+pub const PAPER: AsciiColor = AsciiColor { red: 12, green: 12, blue: 14 };
 
 impl Default for Settings {
     fn default() -> Self {
@@ -107,6 +122,8 @@ impl Default for Settings {
             frames_per_second: 20,
             duration: 4.0,
             scale: 2.0,
+            ink: INK,
+            paper: PAPER,
         }
     }
 }

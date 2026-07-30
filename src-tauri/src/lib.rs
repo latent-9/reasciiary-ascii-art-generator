@@ -3,6 +3,7 @@ pub mod repl;
 
 use std::collections::HashMap;
 
+use art::canvas::AsciiColor;
 use art::export::{self, Format, Settings};
 use art::generator::Generator;
 use art::params::Params;
@@ -49,6 +50,11 @@ impl Request {
 }
 
 fn settings_from(params: &Params, format: Format) -> Result<Settings, String> {
+    let colour = |name, fallback| match params.string(name) {
+        Some(text) => AsciiColor::from_hex(text),
+        None => Ok(fallback),
+    };
+
     Ok(Settings {
         format,
         columns: params.usize("columns", 160)?,
@@ -56,6 +62,8 @@ fn settings_from(params: &Params, format: Format) -> Result<Settings, String> {
         frames_per_second: params.usize("fps", 20)? as u32,
         duration: params.f64("duration", 4.0)?,
         scale: params.f64("scale", 2.0)?,
+        ink: colour("ink", export::INK)?,
+        paper: colour("paper", export::PAPER)?,
     })
 }
 

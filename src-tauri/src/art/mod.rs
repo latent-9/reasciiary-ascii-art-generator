@@ -16,7 +16,6 @@ use std::process::{Command as Process, Stdio};
 use image::RgbaImage;
 use rayon::prelude::*;
 
-use canvas::AsciiColor;
 use export::{Format, Settings};
 use filter::Filter;
 use generator::Generator;
@@ -26,9 +25,6 @@ pub const FONT: &[u8] = include_bytes!("../../assets/JetBrainsMono-Regular.ttf")
 
 /// The size the cell grid is measured at before the export scale is applied.
 pub const BASE_FONT_SIZE: f32 = 14.0;
-
-const FOREGROUND: AsciiColor = AsciiColor { red: 231, green: 231, blue: 231 };
-const BACKGROUND: AsciiColor = AsciiColor { red: 12, green: 12, blue: 14 };
 
 /// One parsed command line: a source, the filters it flows through, and where
 /// the result lands.
@@ -177,7 +173,7 @@ fn draw_frame(
                     filter.apply(&mut canvas, time);
                 }
             }
-            painter.draw(&canvas, FOREGROUND, BACKGROUND, size)
+            painter.draw(&canvas, settings.ink, settings.paper, size)
         }
         Generator::Pixel(generator) => generator.frame(size.0, size.1, time),
     };
