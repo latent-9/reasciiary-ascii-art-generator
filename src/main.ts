@@ -152,8 +152,6 @@ function fitPreview() {
   preview.style.fontSize = `${Math.max(Math.min(width, height), 1)}px`;
 }
 
-const FRAME_MS = 80;
-
 /// What the export will do, mirrored so the preview shows the same frames.
 type Plan = {
   period: number | null;
@@ -162,18 +160,13 @@ type Plan = {
   frame: number | null;
 };
 
-let time = 0;
-let plan: Plan = { period: null, loops: 1, seconds: 4, frame: null };
-let pending = false;
-/// Whether the frame on screen is out of date. A still holds one image for as
-/// long as nobody touches a control, and asking the backend to redraw it a
-/// dozen times a second lit up a core for nothing — every one of those frames
-/// lifts the whole drawing into a solid again.
-let stale = false;
+/// One whole loop, already rendered.
+type Film = { frames: string[]; fps: number };
 
-const invalidate = () => {
-  stale = true;
-};
+let plan: Plan = { period: null, loops: 1, seconds: 4, frame: null };
+let film: Film = { frames: [], fps: 1 };
+let shown = -1;
+let pending = false;
 
 /// Re-asks the backend what an export would do, and reshapes the grid to suit.
 async function refreshPlan() {
@@ -185,36 +178,79 @@ async function refreshPlan() {
   }
   updateHint();
   fitPreview();
-  invalidate();
 }
 
-async function tick() {
+/// How long a change is left to settle before the loop behind it is rendered.
+///
+/// Long enough that dragging a slider across its range asks for one film rather
+/// than forty, short enough that letting go feels immediate.
+const SETTLE_MS = 180;
+let settling: number | undefined;
+
+/// Rebuilds the loop after whatever is being changed stops changing.
+function invalidate() {
+  if (!hasDrawing()) return;
+  clearTimeout(settling);
+  settling = setTimeout(loadFilm, SETTLE_MS);
+}
+
+async function loadFilm() {
   if (!hasDrawing() || pending) return;
   pending = true;
-  // Cleared here rather than by the caller, so a change that arrives while a
-  // frame is still in flight survives to the next pass instead of being lost.
-  stale = false;
   try {
-    preview.textContent = await invoke<string>("preview", {
-      request: request(),
-      time,
-    });
+    film = await invoke<Film>("sequence", { request: request() });
+    shown = -1;
+  } catch (error) {
+    film = { frames: [String(error)], fps: 1 };
+    shown = -1;
+  } finally {
+    pending = false;
+  }
+}
+
+/// Plays the loop off the animation clock.
+///
+/// Which frame belongs on screen is a question about elapsed time, so it is
+/// asked that way — rather than by counting ticks, which loses count the moment
+/// one of them runs late. Nothing here waits on the backend: the frames are
+/// already in hand, so a slow render can no longer show up as a stutter.
+///
+/// Reading the clock rather than holding a position also means a film that gets
+/// rebuilt picks up where the last one was in its own cycle, so changing the
+/// depth or the palette does not jog the spin.
+function play(now: number) {
+  requestAnimationFrame(play);
+  const { frames, fps } = film;
+  if (frames.length === 0) return;
+
+  const index =
+    frames.length === 1
+      ? 0
+      : Math.floor((now / 1000) * fps) % frames.length;
+  if (index === shown) return;
+  shown = index;
+  preview.textContent = frames[index];
+}
+requestAnimationFrame(play);
+
+/// One frame, now, for while the camera is being dragged.
+///
+/// Turning the model by hand wants an answer per movement, not a whole loop per
+/// movement — the loop it would render is one nobody is going to see, because
+/// the next drag event replaces it.
+async function showFrame() {
+  if (!hasDrawing() || pending) return;
+  pending = true;
+  try {
+    const frame = await invoke<string>("preview", { request: request(), time: 0 });
+    film = { frames: [frame], fps: 1 };
+    shown = -1;
   } catch (error) {
     preview.textContent = String(error);
   } finally {
     pending = false;
   }
 }
-
-setInterval(() => {
-  const { period, loops, seconds } = plan;
-  if (!state.still && period && seconds > 0) {
-    const rate = (loops * period) / seconds;
-    time = (time + (FRAME_MS / 1000) * rate) % period;
-    invalidate();
-  }
-  if (stale) tick();
-}, FRAME_MS);
 
 function updateHint() {
   if (state.format === "gif" && slider("seconds") > 12) {
@@ -238,14 +274,14 @@ function bindSliders() {
     show();
     input.addEventListener("input", () => {
       show();
-      invalidate();
       if (name === "detail") {
         fitPreview();
         updateHint();
       }
-      // Both of these move how fast the export turns, which is what the preview
-      // paces itself by.
+      // Both of these move how fast the export turns, which is what the film is
+      // rendered and played at.
       if (name === "turns" || name === "seconds") refreshPlan();
+      invalidate();
     });
   }
 }
@@ -277,7 +313,7 @@ function bindCamera() {
     state.pitch = clamp(state.pitch - (event.clientY - lastY) * 0.25, -90, 90);
     lastX = event.clientX;
     lastY = event.clientY;
-    invalidate();
+    showFrame();
   });
 
   const release = (event: PointerEvent) => {
@@ -285,6 +321,8 @@ function bindCamera() {
     dragging = false;
     screen.releasePointerCapture(event.pointerId);
     screen.classList.remove("turning");
+    // Back to a moving picture now the angle has been settled on.
+    invalidate();
   };
   screen.addEventListener("pointerup", release);
   screen.addEventListener("pointercancel", release);
@@ -297,6 +335,7 @@ function bindCamera() {
       // Multiplicative, so a notch is the same proportion of the size at every
       // zoom rather than a bigger jump the further out you are.
       state.zoom = clamp(state.zoom * Math.exp(-event.deltaY * 0.002), 0.25, 4);
+      showFrame();
       invalidate();
     },
     { passive: false },
@@ -347,11 +386,9 @@ async function loadDrawing(label: string) {
   fileLabel.textContent = label;
   status.className = "status";
   status.textContent = "";
-  time = 0;
   await refreshPlan();
   fitPreview();
-  invalidate();
-  tick();
+  await loadFilm();
 }
 
 renderButton.addEventListener("click", async () => {
@@ -392,6 +429,7 @@ bindCamera();
 bindSegmented("motion", (value) => {
   state.still = value === "still";
   refreshPlan();
+  invalidate();
 });
 bindSegmented("format", (value) => {
   state.format = value;

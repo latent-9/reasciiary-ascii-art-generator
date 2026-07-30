@@ -3,6 +3,8 @@ pub mod repl;
 
 use std::collections::HashMap;
 
+use rayon::prelude::*;
+
 use art::canvas::AsciiColor;
 use art::export::{self, Format, Settings};
 use art::generator::Generator;
@@ -139,6 +141,65 @@ async fn plan(request: Request) -> Result<Plan, String> {
     .await
 }
 
+/// One whole loop, rendered in advance.
+#[derive(serde::Serialize)]
+pub struct Film {
+    frames: Vec<String>,
+    /// The rate that plays them back over exactly one loop.
+    fps: f64,
+}
+
+/// Renders every frame of one loop at once, so the window can play a spin
+/// instead of chasing it.
+///
+/// Asking for a frame at a time cannot be smooth, whatever the renderer costs.
+/// The window ran a timer, requested the frame for the time it had reached, and
+/// dropped the request if the last one had not come back — so a frame that took
+/// a little too long did not merely arrive late, it deleted the frames behind
+/// it, and the spin stuttered in proportion to how busy the machine was. Nothing
+/// about a loop needs that: it is the same short cycle every time round, so it
+/// can be rendered once and played from memory at an exact rate, with no round
+/// trip in the way of a frame at all.
+///
+/// The span sampled is `[0, period)` — the frame at `period` is the frame at 0,
+/// so a full turn is covered exactly once and the loop closes on itself. That is
+/// the rule [`export::whole_loops`] follows, which is what keeps the preview
+/// showing the frames an export writes.
+#[tauri::command]
+async fn sequence(request: Request) -> Result<Film, String> {
+    off_the_ui_thread(move || {
+        let (generator, _, params) = request.build()?;
+        let columns = params.usize("columns", 160)?;
+        let rows = params.usize("rows", 48)?;
+        let requested = params.usize("fps", 20)?.max(1) as f64;
+
+        let Generator::Glyph(generator) = generator else {
+            return Err("this tool draws pixels, not text".into());
+        };
+
+        let Some(period) = generator.loop_duration().filter(|period| *period > 0.0) else {
+            // A still is a one-frame film. Playing it costs the window nothing,
+            // so it does not need a second path through any of this.
+            return Ok(Film { frames: vec![generator.canvas(columns, rows, 0.0).text()], fps: 1.0 });
+        };
+
+        // Enough that a fast spin still reads as motion, few enough that a slow
+        // one is not a thousand renders nobody asked for. Whatever the count
+        // ends up being, the rate is set to match it, so one pass is one loop.
+        let count = ((period * requested).round() as usize).clamp(24, 240);
+        let frames = (0..count)
+            .into_par_iter()
+            .map(|index| {
+                let time = period * index as f64 / count as f64;
+                generator.canvas(columns, rows, time).text()
+            })
+            .collect();
+
+        Ok(Film { frames, fps: count as f64 / period })
+    })
+    .await
+}
+
 #[tauri::command]
 async fn render_art(request: Request) -> Result<String, String> {
     off_the_ui_thread(move || {
@@ -193,7 +254,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![preview, plan, render_art])
+        .invoke_handler(tauri::generate_handler![preview, plan, sequence, render_art])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
