@@ -524,6 +524,174 @@ pub fn build(params: &Params) -> Result<Generator, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::art::canvas::SPACE;
+
+    const DIAMOND: &str = "\
+   @@@
+  @###@
+ @#+++#@
+@#+...+#@
+ @#+++#@
+  @###@
+   @@@   ";
+
+    /// The window's defaults, so a test measures what somebody actually sees.
+    fn render(text: &str, yaw_degrees: f64, columns: usize, rows: usize) -> AsciiCanvas {
+        let mut renderer = Renderer::new(Solid::from_text(text, 8.0));
+        renderer.pitch = 0.5;
+        renderer.zoom = 0.92;
+        renderer.canvas_at(columns, rows, yaw_degrees.to_radians())
+    }
+
+    /// Leftmost, rightmost, topmost and bottommost cell holding anything.
+    fn inked_bounds(canvas: &AsciiCanvas) -> Option<(usize, usize, usize, usize)> {
+        let drawn: Vec<(usize, usize)> = (0..canvas.rows)
+            .flat_map(|row| (0..canvas.columns).map(move |column| (column, row)))
+            .filter(|&(column, row)| canvas.get(column, row) != SPACE)
+            .collect();
+        let (first, _) = drawn.split_first()?;
+        let mut bounds = (first.0, first.0, first.1, first.1);
+        for (column, row) in &drawn {
+            bounds.0 = bounds.0.min(*column);
+            bounds.1 = bounds.1.max(*column);
+            bounds.2 = bounds.2.min(*row);
+            bounds.3 = bounds.3.max(*row);
+        }
+        Some(bounds)
+    }
+
+    /// A drawing is lifted off a floor at zero, so nothing sits at the point the
+    /// frame turns about unless the solid is deliberately hung around it.
+    /// Without that it orbits the frame as it spins and a pitched view walks off
+    /// the bottom edge — which is what this drifted into once already.
+    #[test]
+    fn the_solid_turns_about_the_middle_of_the_frame() {
+        let (columns, rows) = (60, 20);
+        for yaw in [0.0, 45.0, 90.0, 135.0, 180.0, 270.0, 359.0] {
+            let canvas = render(DIAMOND, yaw, columns, rows);
+            let (left, right, top, bottom) =
+                inked_bounds(&canvas).expect("the diamond draws something");
+
+            let x = (left + right) as f64 / 2.0;
+            let y = (top + bottom) as f64 / 2.0;
+            let (frame_x, frame_y) = ((columns as f64 - 1.0) / 2.0, (rows as f64 - 1.0) / 2.0);
+
+            assert!(
+                (x - frame_x).abs() <= 1.0,
+                "at yaw {yaw} the drawing sits at column {x}, not {frame_x}"
+            );
+            assert!(
+                (y - frame_y).abs() <= 1.0,
+                "at yaw {yaw} the drawing sits at row {y}, not {frame_y}"
+            );
+        }
+    }
+
+    /// The zoom the window opens on leaves a margin. Losing it means the fit is
+    /// measuring an extent the solid no longer has.
+    #[test]
+    fn nothing_runs_off_the_edge_at_the_default_zoom() {
+        let (columns, rows) = (60, 20);
+        for yaw in [0.0, 45.0, 90.0, 135.0, 180.0] {
+            let canvas = render(DIAMOND, yaw, columns, rows);
+            let (left, right, top, bottom) = inked_bounds(&canvas).expect("something is drawn");
+            assert!(
+                left > 0 && right < columns - 1 && top > 0 && bottom < rows - 1,
+                "at yaw {yaw} the render touches the frame edge: \
+                 columns {left}..{right} of {columns}, rows {top}..{bottom} of {rows}"
+            );
+        }
+    }
+
+    /// Blank lines at the end of a file are how it was saved, not part of the
+    /// drawing, and counting them would push the drawing up out of centre.
+    #[test]
+    fn trailing_blank_lines_are_not_part_of_the_drawing() {
+        let plain = Solid::from_text(DIAMOND, 8.0);
+        let padded = Solid::from_text(&format!("{DIAMOND}\n\n   \n\n"), 8.0);
+        assert_eq!(plain.faces.len(), padded.faces.len());
+        assert!((plain.radius - padded.radius).abs() < 1e-9);
+    }
+
+    /// A file of spaces is a legitimate thing to open, and every stage below has
+    /// to survive being handed a solid with nothing in it.
+    #[test]
+    fn a_drawing_with_no_ink_draws_nothing() {
+        let canvas = render("    \n    \n", 0.0, 20, 8);
+        assert!(inked_bounds(&canvas).is_none());
+        assert!(canvas.glyphs.iter().all(|&glyph| glyph == SPACE));
+    }
+
+    #[test]
+    fn a_zero_sized_grid_is_not_a_panic() {
+        assert_eq!(render(DIAMOND, 0.0, 0, 0).glyphs.len(), 0);
+        assert_eq!(render(DIAMOND, 0.0, 10, 0).glyphs.len(), 0);
+        assert_eq!(render(DIAMOND, 0.0, 0, 10).glyphs.len(), 0);
+    }
+
+    /// Heavier ink stands taller — the one rule that decides what the third
+    /// dimension of a flat drawing even is.
+    #[test]
+    fn heavier_ink_stands_taller() {
+        let solid = |glyph: char| {
+            Solid::from_text(&format!("{glyph}"), 8.0)
+                .faces
+                .iter()
+                .map(|face| face.a.z)
+                .fold(f64::NEG_INFINITY, f64::max)
+        };
+        assert!(solid('@') > solid('#'));
+        assert!(solid('#') > solid('.'));
+        assert!(Solid::from_text(" ", 8.0).faces.is_empty());
+    }
+
+    /// A whole turn is the loop, and the exporter samples exactly that span. A
+    /// wrong answer here is a GIF with a visible jump at the seam.
+    ///
+    /// The seam closes to within a few cells rather than exactly. `period *
+    /// spin_rate` lands one bit off `TAU`, and a cell where two faces meet at
+    /// the same depth then breaks its tie the other way. Five cells in five
+    /// hundred is invisible; the wrong period is not, which is what the second
+    /// half of this measures.
+    #[test]
+    fn a_spin_loops_over_one_full_turn() {
+        let spinning = SpinningAscii {
+            renderer: Renderer::new(Solid::from_text(DIAMOND, 8.0)),
+            spin_rate: 1.2,
+            still: false,
+        };
+        let period = spinning.loop_duration().expect("a spin has a period");
+        assert!((period - TAU / 1.2).abs() < 1e-9);
+
+        let moved_after = |seconds: f64| {
+            let start = spinning.canvas(40, 14, 0.0);
+            let later = spinning.canvas(40, 14, seconds);
+            start
+                .glyphs
+                .iter()
+                .zip(&later.glyphs)
+                .filter(|(before, after)| before != after)
+                .count()
+        };
+
+        let seam = moved_after(period);
+        assert!(seam < 560 / 50, "the loop does not close: {seam} cells moved");
+        assert!(
+            moved_after(period * 0.9) > seam * 10,
+            "the seam tolerance is wide enough to hide a wrong period"
+        );
+    }
+
+    #[test]
+    fn a_still_has_no_loop() {
+        let still = SpinningAscii {
+            renderer: Renderer::new(Solid::from_text(DIAMOND, 8.0)),
+            spin_rate: 1.2,
+            still: true,
+        };
+        assert_eq!(still.loop_duration(), None);
+        assert_eq!(still.canvas(40, 14, 0.0).glyphs, still.canvas(40, 14, 9.0).glyphs);
+    }
 
     /// The cache is what stops the preview from going back to disk, so the risk
     /// it carries is the opposite one: a drawing edited in another window still
