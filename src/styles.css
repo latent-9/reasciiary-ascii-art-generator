@@ -1,7 +1,24 @@
+/* Three real weights rather than one. Asked to synthesise a bold from Regular
+   the webview smears each glyph sideways, which on a monospace face at 10px
+   closes up the counters and reads as mud. */
 @font-face {
   font-family: "JetBrains Mono";
   src: url("/fonts/JetBrainsMono-Regular.ttf") format("truetype");
   font-weight: 400;
+  font-display: block;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fonts/JetBrainsMono-Medium.ttf") format("truetype");
+  font-weight: 500;
+  font-display: block;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("/fonts/JetBrainsMono-SemiBold.ttf") format("truetype");
+  font-weight: 600;
   font-display: block;
 }
 
@@ -31,6 +48,9 @@ body {
   height: 100%;
   overflow: hidden;
   font-family: "JetBrains Mono", ui-monospace, monospace;
+  /* Medium throughout the chrome. The panel runs at 10 and 11px against a dark
+     background, where Regular thins out to the point of being hard to read. */
+  font-weight: 500;
   background: var(--bg);
   color: var(--fg);
   -webkit-font-smoothing: antialiased;
@@ -81,6 +101,7 @@ body {
 
 .brand {
   font-size: 13px;
+  font-weight: 600;
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--accent);
@@ -93,7 +114,7 @@ section {
 
 h2 {
   font-size: 10px;
-  font-weight: 400;
+  font-weight: 600;
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--dim);
@@ -108,7 +129,10 @@ label {
   margin: 8px 0 3px;
 }
 
+/* The number a slider is sitting on is the one thing in the panel worth
+   reading at a glance, so it carries the extra step on its own. */
 output {
+  font-weight: 600;
   color: var(--fg);
 }
 
@@ -142,6 +166,7 @@ input[type="range"]::-webkit-slider-thumb:hover {
 button {
   font-family: inherit;
   font-size: 11px;
+  font-weight: 500;
   color: var(--fg);
   background: transparent;
   border: 1px solid var(--line);
@@ -159,6 +184,7 @@ button.on {
   background: color-mix(in srgb, var(--accent) 16%, transparent);
   border-color: var(--accent);
   color: var(--accent);
+  font-weight: 600;
 }
 
 button.wide {
@@ -171,6 +197,7 @@ button.primary {
   color: var(--panel);
   padding: 10px;
   font-size: 12px;
+  font-weight: 600;
   margin-top: 4px;
 }
 
@@ -254,8 +281,14 @@ button:disabled {
   overflow: hidden;
 }
 
+/* Regular, against the heavier chrome around it. The exporter paints frames
+   with the Regular face, and the whole point of the preview is to be the frame
+   that gets written — a heavier one here would show ink the file will not have,
+   which matters when the ramp being previewed is ordered by ink in the first
+   place. */
 #preview {
   font-family: "JetBrains Mono", monospace;
+  font-weight: 400;
   line-height: var(--cell-line);
   white-space: pre;
   color: var(--fg);
