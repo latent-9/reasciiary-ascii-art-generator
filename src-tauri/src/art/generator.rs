@@ -23,6 +23,13 @@ pub trait GlyphGenerator: Send + Sync {
     fn loop_duration(&self) -> Option<f64> {
         None
     }
+
+    /// How many columns the drawing wants for every row, so the grid it lands
+    /// on can be the shape it is rather than a shape chosen for it. `None` from
+    /// a tool that fills whatever grid it is handed.
+    fn frame_aspect(&self) -> Option<f64> {
+        None
+    }
 }
 
 /// A tool that draws pixels directly, skipping the character grid.

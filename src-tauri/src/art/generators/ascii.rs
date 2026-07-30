@@ -380,6 +380,20 @@ impl Renderer {
         }
     }
 
+    /// Columns per row for a grid the model fills, which is what the window
+    /// shapes the frame from.
+    ///
+    /// Measured at no pitch rather than at the current one: pitching the model
+    /// changes how tall it stands, and a frame that followed would resize under
+    /// a drag. The horizontal extent already covers a whole turn, so this holds
+    /// steady through a spin — which is the part that has to.
+    pub fn frame_aspect(&self) -> f64 {
+        let (horizontal, vertical) = self.solid.bound.extents(0.0);
+        // A cell is `CELL_ASPECT` times taller than it is wide, so a world box
+        // that square needs that many fewer rows than columns to hold it.
+        horizontal * CELL_ASPECT / vertical
+    }
+
     /// `yaw` is passed rather than read from the field so one prepared renderer
     /// can serve every frame of a spin without being rebuilt.
     pub fn canvas_at(&self, columns: usize, rows: usize, yaw: f64) -> AsciiCanvas {
@@ -632,6 +646,10 @@ impl GlyphGenerator for SpinningAscii {
         } else {
             Some(TAU / self.spin_rate.abs())
         }
+    }
+
+    fn frame_aspect(&self) -> Option<f64> {
+        Some(self.renderer.frame_aspect())
     }
 }
 
