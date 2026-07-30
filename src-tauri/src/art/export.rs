@@ -107,22 +107,35 @@ pub fn h264_bitrate(width: u32, height: u32) -> u64 {
     width as u64 * height as u64 * 8
 }
 
+/// Frames arrive on stdin as raw RGBA rather than as PNGs in a temp directory.
+/// Encoding a PNG per frame cost more than the render itself, and the files were
+/// only ever read back once.
+fn raw_input(width: u32, height: u32, fps: u32) -> Vec<String> {
+    vec![
+        "-y".into(),
+        "-f".into(), "rawvideo".into(),
+        "-pix_fmt".into(), "rgba".into(),
+        "-video_size".into(), format!("{width}x{height}"),
+        "-framerate".into(), fps.to_string(),
+        "-i".into(), "-".into(),
+    ]
+}
+
 /// Arguments for the MP4 pass.
 ///
 /// `yuv420p` is required for the file to play on X and in QuickTime, but its
 /// chroma subsampling is exactly what hurts thin coloured strokes; the bitrate
-/// above is what buys that back. AVFoundation handled this silently.
-pub fn mp4_args(pattern: &str, fps: u32, width: u32, height: u32, out: &str) -> Vec<String> {
-    vec![
-        "-y".into(),
-        "-framerate".into(), fps.to_string(),
-        "-i".into(), pattern.into(),
+/// is what buys that back. AVFoundation handled this silently.
+pub fn mp4_args(width: u32, height: u32, fps: u32, out: &str) -> Vec<String> {
+    let mut args = raw_input(width, height, fps);
+    args.extend([
         "-c:v".into(), "libx264".into(),
         "-profile:v".into(), "high".into(),
         "-pix_fmt".into(), "yuv420p".into(),
         "-b:v".into(), h264_bitrate(width, height).to_string(),
         out.into(),
-    ]
+    ]);
+    args
 }
 
 /// Arguments for the GIF pass.
@@ -136,14 +149,13 @@ pub fn mp4_args(pattern: &str, fps: u32, width: u32, height: u32, out: &str) -> 
 /// second invocation.
 ///
 /// `-loop 0` means forever, which is what a posted loop wants.
-pub fn gif_args(pattern: &str, fps: u32, out: &str) -> Vec<String> {
-    vec![
-        "-y".into(),
-        "-framerate".into(), fps.to_string(),
-        "-i".into(), pattern.into(),
+pub fn gif_args(width: u32, height: u32, fps: u32, out: &str) -> Vec<String> {
+    let mut args = raw_input(width, height, fps);
+    args.extend([
         "-lavfi".into(),
         "split[a][b];[a]palettegen=stats_mode=single[p];[b][p]paletteuse=new=1".into(),
         "-loop".into(), "0".into(),
         out.into(),
-    ]
+    ]);
+    args
 }

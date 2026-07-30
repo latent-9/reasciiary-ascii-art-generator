@@ -32,7 +32,6 @@ noise = "0.9.0"
 fontdue = "0.9.4"
 rand = "0.10.2"
 gif = "0.14.2"
-tempfile = "3.27.0"
 thiserror = "2.0.19"
 tauri-plugin-dialog = "2.7.2"
 

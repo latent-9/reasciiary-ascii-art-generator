@@ -115,17 +115,22 @@ function request(withOutput?: string) {
   };
 }
 
-/// Scales the preview so the whole grid is visible. JetBrains Mono's advance is
-/// almost exactly 0.6em, which is close enough to fit without measuring.
+/// A cell's width and height as fractions of the font size, read from the same
+/// custom properties the stylesheet lays the preview out on. Keeping one copy
+/// is what stops the preview from drifting out of shape against the export.
+const cell = (name: "advance" | "line") =>
+  Number(
+    getComputedStyle(document.documentElement).getPropertyValue(`--cell-${name}`),
+  );
+
+/// Scales the preview so the whole grid is visible.
 function fitPreview() {
   if (!hasDrawing()) {
     preview.style.fontSize = "12px";
     return;
   }
-  const columns = slider("columns");
-  const rows = slider("rows");
-  const width = (screen.clientWidth - 24) / (columns * 0.6);
-  const height = (screen.clientHeight - 24) / rows;
+  const width = (screen.clientWidth - 24) / (slider("columns") * cell("advance"));
+  const height = (screen.clientHeight - 24) / (slider("rows") * cell("line"));
   preview.style.fontSize = `${Math.max(Math.min(width, height), 1)}px`;
 }
 

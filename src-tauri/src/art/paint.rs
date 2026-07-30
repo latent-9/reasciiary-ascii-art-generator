@@ -46,10 +46,21 @@ impl Painter {
 
         Self {
             cell_width: advance.max(1.0),
-            cell_height: (line.ascent - line.descent + line.line_gap).round().max(1.0),
+            // Deliberately not rounded to whole pixels. A cell is 18.48 pixels
+            // tall at the default size, and rounding it down cost a frame 2.6%
+            // of its height over 48 rows — a squash the 3D lift cannot know
+            // about, since it models the grid at a fixed cell shape. Baselines
+            // land on fractional rows instead and `blit` rounds each one, which
+            // is the same trade a terminal makes.
+            cell_height: (line.ascent - line.descent + line.line_gap).max(1.0),
             ascent: line.ascent,
             glyphs,
         }
+    }
+
+    /// The shape of one cell, tall over wide.
+    pub fn cell_aspect(&self) -> f64 {
+        self.cell_height as f64 / self.cell_width as f64
     }
 
     pub fn size_of(&self, columns: usize, rows: usize) -> (u32, u32) {
@@ -125,6 +136,33 @@ fn blit(
             pixel[0] = ((color.red as u16 * a + pixel[0] as u16 * inverse) / 255) as u8;
             pixel[1] = ((color.green as u16 * a + pixel[1] as u16 * inverse) / 255) as u8;
             pixel[2] = ((color.blue as u16 * a + pixel[2] as u16 * inverse) / 255) as u8;
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::art::canvas::CELL_ASPECT;
+    use crate::art::{BASE_FONT_SIZE, FONT};
+
+    /// Swapping the bundled font for one with different metrics would silently
+    /// stretch every 3D render, because the lift models the grid at
+    /// [`CELL_ASPECT`] and nothing downstream re-measures. Failing here instead
+    /// says which number to move.
+    #[test]
+    fn painted_cells_have_the_shape_the_grid_is_modelled_at() {
+        let font = Font::from_bytes(FONT, fontdue::FontSettings::default())
+            .expect("bundled font loads");
+
+        for scale in [1.0, 2.0, 3.0] {
+            let painter = Painter::new(&font, BASE_FONT_SIZE * scale);
+            let aspect = painter.cell_aspect();
+            assert!(
+                (aspect - CELL_ASPECT).abs() < 0.01,
+                "cells are {aspect:.3} tall per unit wide at scale {scale}, \
+                 but the grid is modelled at {CELL_ASPECT}"
+            );
         }
     }
 }

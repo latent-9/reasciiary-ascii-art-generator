@@ -6,6 +6,12 @@
 }
 
 :root {
+  /* JetBrains Mono's advance and line box as fractions of the font size. Their
+     ratio is the cell shape the 3D lift models the grid at, so the preview only
+     matches what gets exported while the pre below is laid out on them. */
+  --cell-advance: 0.6;
+  --cell-line: 1.32;
+
   --bg: #1a1b26;
   --panel: #16161e;
   --fg: #c0caf5;
@@ -250,7 +256,7 @@ button:disabled {
 
 #preview {
   font-family: "JetBrains Mono", monospace;
-  line-height: 1.0;
+  line-height: var(--cell-line);
   white-space: pre;
   color: var(--fg);
 }

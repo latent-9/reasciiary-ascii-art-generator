@@ -11,7 +11,7 @@
 
 use std::f64::consts::TAU;
 
-use crate::art::canvas::{ink_coverage, AsciiCanvas, AsciiRamp};
+use crate::art::canvas::{ink_coverage, AsciiCanvas, AsciiRamp, CELL_ASPECT};
 use crate::art::generator::{Generator, GlyphGenerator};
 use crate::art::params::Params;
 
@@ -107,12 +107,6 @@ impl Bound {
         }
     }
 }
-
-/// A terminal cell is about twice as tall as it is wide. Source cells are given
-/// that shape in world space and the projection divides it back out again, so
-/// an unrotated render reproduces the original drawing instead of a squashed
-/// one.
-const CELL_ASPECT: f64 = 2.0;
 
 pub struct Solid {
     faces: Vec<Face>,

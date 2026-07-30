@@ -3,7 +3,9 @@
 //! Nothing here spawns a shell. The window looks like a terminal because that
 //! is the right shape for this tool, not because a PTY is hiding behind it.
 //!
-//!     ascii logo.txt --depth 12 | crt --curve 0.2 > out.mp4
+//! ```text
+//! ascii logo.txt --depth 12 | crt --curve 0.2 > out.mp4
+//! ```
 
 use std::collections::HashMap;
 

@@ -8,8 +8,9 @@ pub mod params;
 pub mod filters;
 pub mod generators;
 
-use std::path::{Path, PathBuf};
-use std::process::Command as Process;
+use std::io::Write;
+use std::path::PathBuf;
+use std::process::{Command as Process, Stdio};
 
 use image::RgbaImage;
 use rayon::prelude::*;
@@ -20,10 +21,10 @@ use filter::Filter;
 use generator::Generator;
 use paint::Painter;
 
-const FONT: &[u8] = include_bytes!("../../assets/JetBrainsMono-Regular.ttf");
+pub const FONT: &[u8] = include_bytes!("../../assets/JetBrainsMono-Regular.ttf");
 
 /// The size the cell grid is measured at before the export scale is applied.
-const BASE_FONT_SIZE: f32 = 14.0;
+pub const BASE_FONT_SIZE: f32 = 14.0;
 
 const FOREGROUND: AsciiColor = AsciiColor { red: 231, green: 231, blue: 231 };
 const BACKGROUND: AsciiColor = AsciiColor { red: 12, green: 12, blue: 14 };
@@ -37,6 +38,10 @@ pub struct Pipeline {
 }
 
 pub fn render(pipeline: &Pipeline, settings: &Settings) -> Result<PathBuf, String> {
+    if settings.format == Format::Text {
+        return write_text(pipeline, settings);
+    }
+
     let font = fontdue::Font::from_bytes(FONT, fontdue::FontSettings::default())
         .map_err(|error| format!("bundled font failed to load: {error}"))?;
 
@@ -54,27 +59,87 @@ pub fn render(pipeline: &Pipeline, settings: &Settings) -> Result<PathBuf, Strin
         size
     };
 
-    if settings.format == Format::Text {
-        return write_text(pipeline, settings);
-    }
-
-    let times = frame_times(pipeline, settings);
-    let frames: Vec<RgbaImage> = times
-        .par_iter()
-        .map(|time| draw_frame(pipeline, &painter, settings, size, *time))
-        .collect();
-
     match settings.format {
         Format::Text => unreachable!("handled above"),
         Format::Png => {
-            frames[0]
+            let frame = draw_frame(pipeline, &painter, settings, size, 0.0);
+            frame
                 .save(&pipeline.output)
                 .map_err(|error| format!("cannot write {}: {error}", pipeline.output.display()))?;
         }
-        Format::Gif | Format::Mp4 => encode(&frames, settings, size, &pipeline.output)?,
+        Format::Gif | Format::Mp4 => stream(pipeline, &painter, settings, size)?,
     }
 
     Ok(pipeline.output.clone())
+}
+
+/// Renders a batch at a time and hands each straight to ffmpeg.
+///
+/// Collecting every frame first meant a thirty-second export held several
+/// gigabytes of bitmaps at once, and writing them out as PNGs first cost more
+/// than the render did. Peak memory here is one batch.
+fn stream(
+    pipeline: &Pipeline,
+    painter: &Painter,
+    settings: &Settings,
+    size: (u32, u32),
+) -> Result<(), String> {
+    let times = frame_times(pipeline, settings);
+    let output = pipeline.output.to_string_lossy().into_owned();
+    let fps = settings.frames_per_second;
+
+    let args = match settings.format {
+        Format::Mp4 => export::mp4_args(size.0, size.1, fps, &output),
+        Format::Gif => export::gif_args(size.0, size.1, fps, &output),
+        _ => unreachable!("only the animated formats stream"),
+    };
+
+    let mut child = Process::new("ffmpeg")
+        .args(&args)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|error| format!("ffmpeg could not be run: {error}"))?;
+
+    let mut sink = child.stdin.take().expect("stdin was piped");
+    let batch = rayon::current_num_threads().max(1) * 2;
+    let mut broken = false;
+
+    for chunk in times.chunks(batch) {
+        let frames: Vec<RgbaImage> = chunk
+            .par_iter()
+            .map(|time| draw_frame(pipeline, painter, settings, size, *time))
+            .collect();
+
+        for frame in frames {
+            // A write failing means ffmpeg already gave up; its stderr says why,
+            // so stop feeding it and let the exit status carry the message.
+            if sink.write_all(frame.as_raw()).is_err() {
+                broken = true;
+                break;
+            }
+        }
+        if broken {
+            break;
+        }
+    }
+    drop(sink);
+
+    let finished = child
+        .wait_with_output()
+        .map_err(|error| format!("ffmpeg could not be waited on: {error}"))?;
+    if finished.status.success() {
+        return Ok(());
+    }
+
+    // ffmpeg puts the actual complaint in the last few lines of a long banner.
+    let stderr = String::from_utf8_lossy(&finished.stderr);
+    let tail: Vec<&str> = stderr.lines().rev().take(4).collect();
+    Err(format!(
+        "ffmpeg failed: {}",
+        tail.into_iter().rev().collect::<Vec<_>>().join(" / ")
+    ))
 }
 
 /// Sampling spans exactly one `loop_duration` and excludes its endpoint, which
@@ -128,51 +193,4 @@ fn write_text(pipeline: &Pipeline, settings: &Settings) -> Result<PathBuf, Strin
     std::fs::write(&pipeline.output, canvas.text() + "\n")
         .map_err(|error| format!("cannot write {}: {error}", pipeline.output.display()))?;
     Ok(pipeline.output.clone())
-}
-
-fn encode(
-    frames: &[RgbaImage],
-    settings: &Settings,
-    size: (u32, u32),
-    output: &Path,
-) -> Result<(), String> {
-    let directory = tempfile::tempdir().map_err(|error| format!("no scratch space: {error}"))?;
-
-    frames
-        .par_iter()
-        .enumerate()
-        .try_for_each(|(index, frame)| {
-            let path = directory.path().join(format!("frame_{index:05}.png"));
-            frame
-                .save(&path)
-                .map_err(|error| format!("cannot write frame {index}: {error}"))
-        })?;
-
-    let pattern = directory.path().join("frame_%05d.png");
-    let pattern = pattern.to_string_lossy().into_owned();
-    let out = output.to_string_lossy().into_owned();
-    let fps = settings.frames_per_second;
-
-    match settings.format {
-        Format::Mp4 => ffmpeg(&export::mp4_args(&pattern, fps, size.0, size.1, &out))?,
-        Format::Gif => ffmpeg(&export::gif_args(&pattern, fps, &out))?,
-        _ => unreachable!("only the animated formats are encoded"),
-    }
-
-    Ok(())
-}
-
-fn ffmpeg(args: &[String]) -> Result<(), String> {
-    let output = Process::new("ffmpeg")
-        .args(args)
-        .output()
-        .map_err(|error| format!("ffmpeg could not be run: {error}"))?;
-
-    if output.status.success() {
-        return Ok(());
-    }
-    // ffmpeg puts the actual complaint in the last few lines of a long banner.
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let tail: Vec<&str> = stderr.lines().rev().take(4).collect();
-    Err(format!("ffmpeg failed: {}", tail.into_iter().rev().collect::<Vec<_>>().join(" / ")))
 }

@@ -3,6 +3,8 @@
 //! Ported from `asciiary/AsciiCanvas.swift` and the `AsciiInk` table in
 //! `asciiary/Ascii3D.swift` of the Swift original.
 
+use std::sync::LazyLock;
+
 /// A cell colour. Eight bits a channel is what both a terminal's true-colour
 /// escape and an exported frame can carry.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -25,6 +27,17 @@ impl AsciiColor {
 }
 
 pub const SPACE: u8 = b' ';
+
+/// How much taller a character cell is than it is wide.
+///
+/// Not a stylistic choice and not a round number by accident: it is the shape
+/// [`super::paint::Painter`] arrives at when it measures the bundled JetBrains
+/// Mono, whose line box is 1.32em over a 0.6em advance. A tool that models the
+/// grid in world space — the 3D lift does — divides this back out again, so its
+/// output only comes back undistorted while every surface the grid lands on
+/// agrees on it. The exporter and the window's preview both have to hold to it,
+/// and `paint`'s test is the guard on the first of those.
+pub const CELL_ASPECT: f64 = 2.2;
 
 /// A grid of characters, optionally coloured.
 ///
@@ -101,17 +114,31 @@ impl AsciiCanvas {
 pub const INK_RAMP: &str =
     r#" .'`,:;^"~-_!|ilIjrt()[]{}/\<>?+=*cvxzsnuoea17LTJCYfywkh325469FPVXZESGAKHUDOQ0bdpqgmRNWM&8%$#B@"#;
 
+/// Coverage per ASCII byte, resolved once. A drawing is read cell by cell, so a
+/// linear scan of the ramp here showed up on drawings of any size.
+static COVERAGE: LazyLock<[f64; 128]> = LazyLock::new(|| {
+    let ramp = INK_RAMP.as_bytes();
+    let last = (ramp.len() - 1) as f64;
+    let mut table = [1.0; 128];
+    for byte in 0..128u8 {
+        if (byte as char).is_whitespace() {
+            table[byte as usize] = 0.0;
+        }
+    }
+    for (index, &byte) in ramp.iter().enumerate() {
+        table[byte as usize] = index as f64 / last;
+    }
+    table
+});
+
 /// Ink coverage of `character`, 0 for an empty cell and 1 for a solid one.
 ///
 /// Anything outside printable ASCII counts as solid rather than empty:
 /// box-drawing and block glyphs are common in ASCII art, and dropping them
 /// would punch holes through exactly the parts the artist drew heaviest.
 pub fn ink_coverage(character: char) -> f64 {
-    let ramp = INK_RAMP.as_bytes();
-    if character.is_ascii() {
-        if let Some(index) = ramp.iter().position(|&b| b == character as u8) {
-            return index as f64 / (ramp.len() - 1) as f64;
-        }
+    if (character as u32) < 128 {
+        return COVERAGE[character as usize];
     }
     if character.is_whitespace() {
         0.0
