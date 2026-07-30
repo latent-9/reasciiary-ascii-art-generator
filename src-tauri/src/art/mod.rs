@@ -94,7 +94,7 @@ fn stream(
         _ => unreachable!("only the animated formats stream"),
     };
 
-    let mut child = Process::new("ffmpeg")
+    let mut child = Process::new(export::encoder()?)
         .args(&args)
         .stdin(Stdio::piped())
         .stdout(Stdio::null())

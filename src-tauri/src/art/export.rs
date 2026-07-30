@@ -5,6 +5,53 @@
 //! behind each is kept because none of them are guessable from first
 //! principles.
 
+use std::path::PathBuf;
+
+/// Where ffmpeg is installed when it is not on the PATH.
+///
+/// Homebrew's two prefixes, MacPorts', and the system one.
+const USUAL_PREFIXES: [&str; 4] = [
+    "/opt/homebrew/bin/ffmpeg",
+    "/usr/local/bin/ffmpeg",
+    "/opt/local/bin/ffmpeg",
+    "/usr/bin/ffmpeg",
+];
+
+/// The encoder to spawn.
+///
+/// Spawning a bare `ffmpeg` works under `tauri dev`, which inherits the
+/// terminal's PATH — and that is exactly what hides the bug. A bundle launched
+/// from Finder gets `/usr/bin:/bin:/usr/sbin:/sbin` and nothing else, so every
+/// GIF and MP4 export fails on a machine where ffmpeg is plainly installed and
+/// the app worked in development an hour earlier. Looking where it actually
+/// lands costs four `stat` calls once per export.
+pub fn encoder() -> Result<PathBuf, String> {
+    if let Some(chosen) = std::env::var_os("ASCIIARY_FFMPEG") {
+        let path = PathBuf::from(chosen);
+        return if path.is_file() {
+            Ok(path)
+        } else {
+            Err(format!(
+                "ASCIIARY_FFMPEG points at `{}`, which is not a file",
+                path.display()
+            ))
+        };
+    }
+
+    std::env::var_os("PATH")
+        .into_iter()
+        .flat_map(|value| std::env::split_paths(&value).collect::<Vec<_>>())
+        .map(|directory| directory.join("ffmpeg"))
+        .chain(USUAL_PREFIXES.iter().map(PathBuf::from))
+        .find(|candidate| candidate.is_file())
+        .ok_or_else(|| {
+            "ffmpeg is needed to write a GIF or an MP4, and no copy was found. \
+             Install it with `brew install ffmpeg`, or set ASCIIARY_FFMPEG to \
+             one. PNG and TXT exports need nothing."
+                .into()
+        })
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Format {
     Text,
