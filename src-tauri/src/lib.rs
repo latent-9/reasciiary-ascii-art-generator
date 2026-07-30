@@ -101,31 +101,39 @@ async fn preview(request: Request, time: f64) -> Result<String, String> {
     .await
 }
 
-/// Everything the preview needs to turn at the rate the export will.
+/// Everything the window needs to mirror what an export will do, so the preview
+/// is the frame that gets written rather than something near it.
 ///
 /// The rate is not simply the spin the sliders carry: an export is rounded to a
 /// whole number of loops so it can end where it began, and the preview has to
 /// be rounded the same way or the window shows a spin nothing ever writes.
 #[derive(serde::Serialize)]
-pub struct Motion {
+pub struct Plan {
     /// Seconds of generator time in one full loop. `null` for a still.
     period: Option<f64>,
     /// Whole loops an export covers.
     loops: usize,
     /// How long that export runs, in seconds.
     seconds: f64,
+    /// Columns per row for a grid the drawing fills. `null` from a tool with no
+    /// shape of its own, which the window reads as "any grid will do".
+    frame: Option<f64>,
 }
 
 #[tauri::command]
-async fn motion(request: Request) -> Result<Motion, String> {
+async fn plan(request: Request) -> Result<Plan, String> {
     off_the_ui_thread(move || {
         let (generator, _, params) = request.build()?;
         let seconds = params.f64("duration", 4.0)?;
         let period = generator.loop_duration();
-        Ok(Motion {
+        Ok(Plan {
             period,
             loops: period.map_or(1, |period| export::whole_loops(period, seconds)),
             seconds,
+            frame: match &generator {
+                Generator::Glyph(generator) => generator.frame_aspect(),
+                Generator::Pixel(_) => None,
+            },
         })
     })
     .await
@@ -185,7 +193,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![preview, motion, render_art])
+        .invoke_handler(tauri::generate_handler![preview, plan, render_art])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

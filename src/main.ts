@@ -1,24 +1,16 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 
-type Theme = {
-  name: string;
-  bg: string;
-  panel: string;
-  fg: string;
-  dim: string;
-  accent: string;
-  line: string;
-};
+/// A scheme is the two colours the render is actually made of, and the window
+/// is dressed in them so what is on screen is what lands in the file. There
+/// were six terminal palettes here, which coloured the chrome and nothing else
+/// — every one of them exported the same near-white on near-black.
+type Theme = { name: string; ink: string; paper: string };
 
-/// The same schemes Ghostty ships, which come from iTerm2-Color-Schemes.
 const THEMES: Theme[] = [
-  { name: "Tokyo Night", bg: "#1a1b26", panel: "#16161e", fg: "#c0caf5", dim: "#565f89", accent: "#7aa2f7", line: "#232433" },
-  { name: "Catppuccin", bg: "#1e1e2e", panel: "#181825", fg: "#cdd6f4", dim: "#6c7086", accent: "#89b4fa", line: "#313244" },
-  { name: "Nord", bg: "#2e3440", panel: "#272c36", fg: "#d8dee9", dim: "#616e88", accent: "#88c0d0", line: "#3b4252" },
-  { name: "Gruvbox", bg: "#282828", panel: "#1d2021", fg: "#ebdbb2", dim: "#928374", accent: "#fabd2f", line: "#3c3836" },
-  { name: "Dracula", bg: "#282a36", panel: "#21222c", fg: "#f8f8f2", dim: "#6272a4", accent: "#bd93f9", line: "#343746" },
-  { name: "Rosé Pine", bg: "#191724", panel: "#1f1d2e", fg: "#e0def4", dim: "#6e6a86", accent: "#ebbcba", line: "#26233a" },
+  { name: "Ink", ink: "#0b0b0b", paper: "#f6f5f2" },
+  { name: "Paper", ink: "#fbfbfb", paper: "#080808" },
+  { name: "Bone", ink: "#f2e3bd", paper: "#0a0908" },
 ];
 
 const element = <T extends HTMLElement>(id: string) =>
@@ -31,7 +23,7 @@ const hint = element("hint");
 const fileLabel = element("file");
 const renderButton = element<HTMLButtonElement>("render");
 
-const SLIDERS = ["depth", "zoom", "yaw", "pitch", "spin", "duration", "fps", "columns", "rows"] as const;
+const SLIDERS = ["depth", "detail", "turns", "seconds"] as const;
 type SliderName = (typeof SLIDERS)[number];
 
 /// Graded ink so the heightfield is obvious the moment the app opens: `@` rises,
@@ -54,11 +46,16 @@ const SAMPLE = [
   "        @        ",
 ].join("\n");
 
+/// Where the camera starts, and what a double-click on the preview puts back.
+const HOME = { yaw: 34, pitch: 29, zoom: 0.92 };
+
 const state = {
   file: null as string | null,
   text: null as string | null,
   still: false,
   format: "mp4",
+  theme: THEMES[0],
+  ...HOME,
 };
 
 const hasDrawing = () => state.file !== null || state.text !== null;
@@ -67,21 +64,35 @@ function slider(name: SliderName): number {
   return Number(element<HTMLInputElement>(name).value);
 }
 
+/// One number settles the whole grid: how many cells the render gets. What
+/// shape they are laid out in is the drawing's business, not a slider's.
+///
+/// Columns and rows were two of those, and every pair but a few framed the
+/// drawing badly — a tall drawing in a wide grid sits in the middle of two
+/// empty margins. Holding the *count* rather than the width is what keeps a
+/// frame that follows the drawing from also changing how long it takes to
+/// render: a portrait subject gets a portrait grid of the same size, not one
+/// three times larger.
+function grid() {
+  const detail = slider("detail");
+  const cells = (detail * detail) / 4;
+  const aspect = plan.frame ?? 16 / 9;
+  const columns = clamp(Math.round(Math.sqrt(cells * aspect)), 20, 400);
+  return { columns, rows: clamp(Math.round(cells / columns), 8, 200) };
+}
+
 function applyTheme(theme: Theme) {
+  state.theme = theme;
   const root = document.documentElement.style;
-  root.setProperty("--bg", theme.bg);
-  root.setProperty("--panel", theme.panel);
-  root.setProperty("--fg", theme.fg);
-  root.setProperty("--dim", theme.dim);
-  root.setProperty("--accent", theme.accent);
-  root.setProperty("--line", theme.line);
+  root.setProperty("--ink", theme.ink);
+  root.setProperty("--paper", theme.paper);
 }
 
 function buildThemes() {
   const container = element("themes");
   THEMES.forEach((theme, index) => {
     const button = document.createElement("button");
-    button.innerHTML = `<span class="swatch" style="background:${theme.accent}"></span>${theme.name}`;
+    button.innerHTML = `<span class="swatch" style="background:${theme.ink};outline-color:${theme.paper}"></span>${theme.name}`;
     if (index === 0) button.classList.add("on");
     button.addEventListener("click", () => {
       container.querySelectorAll("button").forEach((b) => b.classList.remove("on"));
@@ -93,16 +104,22 @@ function buildThemes() {
 }
 
 function request(withOutput?: string) {
+  const { columns, rows } = grid();
+  const seconds = slider("seconds");
   const flags: Record<string, string> = {
     depth: String(slider("depth")),
-    zoom: String(slider("zoom")),
-    yaw: String(slider("yaw")),
-    pitch: String(slider("pitch")),
-    spin: String(slider("spin")),
-    duration: String(slider("duration")),
-    fps: String(slider("fps")),
-    columns: String(slider("columns")),
-    rows: String(slider("rows")),
+    zoom: state.zoom.toFixed(3),
+    yaw: String(Math.round(state.yaw)),
+    pitch: String(Math.round(state.pitch)),
+    // The backend turns at radians a second. Whole turns over the clip is the
+    // same number said in the units somebody choosing one actually has in mind,
+    // and it lands on a seamless loop by construction rather than by rounding.
+    spin: ((slider("turns") * 2 * Math.PI) / seconds).toFixed(4),
+    duration: String(seconds),
+    columns: String(columns),
+    rows: String(rows),
+    ink: state.theme.ink,
+    paper: state.theme.paper,
   };
   if (state.still) flags.still = "";
   if (state.text) flags.text = state.text;
@@ -129,22 +146,24 @@ function fitPreview() {
     preview.style.fontSize = "12px";
     return;
   }
-  const width = (screen.clientWidth - 24) / (slider("columns") * cell("advance"));
-  const height = (screen.clientHeight - 24) / (slider("rows") * cell("line"));
+  const { columns, rows } = grid();
+  const width = (screen.clientWidth - 24) / (columns * cell("advance"));
+  const height = (screen.clientHeight - 24) / (rows * cell("line"));
   preview.style.fontSize = `${Math.max(Math.min(width, height), 1)}px`;
 }
 
 const FRAME_MS = 80;
 
-/// What the export will do, mirrored so the preview turns at the same rate.
-type Motion = {
+/// What the export will do, mirrored so the preview shows the same frames.
+type Plan = {
   period: number | null;
   loops: number;
   seconds: number;
+  frame: number | null;
 };
 
 let time = 0;
-let motion: Motion = { period: null, loops: 1, seconds: 4 };
+let plan: Plan = { period: null, loops: 1, seconds: 4, frame: null };
 let pending = false;
 /// Whether the frame on screen is out of date. A still holds one image for as
 /// long as nobody touches a control, and asking the backend to redraw it a
@@ -156,14 +175,16 @@ const invalidate = () => {
   stale = true;
 };
 
-async function refreshMotion() {
+/// Re-asks the backend what an export would do, and reshapes the grid to suit.
+async function refreshPlan() {
   if (!hasDrawing()) return;
   try {
-    motion = await invoke<Motion>("motion", { request: request() });
+    plan = await invoke<Plan>("plan", { request: request() });
   } catch {
-    motion = { period: null, loops: 1, seconds: slider("duration") };
+    plan = { period: null, loops: 1, seconds: slider("seconds"), frame: null };
   }
   updateHint();
+  fitPreview();
   invalidate();
 }
 
@@ -186,11 +207,8 @@ async function tick() {
 }
 
 setInterval(() => {
-  const { period, loops, seconds } = motion;
+  const { period, loops, seconds } = plan;
   if (!state.still && period && seconds > 0) {
-    // Not the raw spin rate: the export is rounded to whole loops, so the frame
-    // shown here is only the frame that gets written if the preview covers the
-    // same `loops` turns across the same `seconds`.
     const rate = (loops * period) / seconds;
     time = (time + (FRAME_MS / 1000) * rate) % period;
     invalidate();
@@ -199,18 +217,14 @@ setInterval(() => {
 }, FRAME_MS);
 
 function updateHint() {
-  if (state.format === "gif" && slider("duration") > 12) {
+  if (state.format === "gif" && slider("seconds") > 12) {
     hint.textContent =
       "a GIF this long usually lands over X's 15 MB limit — MP4 holds up better past ~12s";
   } else if (state.format === "txt" || state.format === "png") {
     hint.textContent = "a still — only the first frame is written";
-  } else if (!state.still && motion.period) {
-    // The speed is rounded to whole turns so the loop closes, and rounding is
-    // only fair to the person moving the slider if they can see where it landed.
-    const turns = motion.loops;
-    hint.textContent = `${turns} full ${turns === 1 ? "turn" : "turns"} in ${motion.seconds}s`;
   } else {
-    hint.textContent = "";
+    const { columns, rows } = grid();
+    hint.textContent = `${columns}×${rows} cells`;
   }
 }
 
@@ -219,25 +233,87 @@ function bindSliders() {
     const input = element<HTMLInputElement>(name);
     const output = element(`${name}-value`);
     const show = () => {
-      const value = slider(name);
-      output.textContent =
-        name === "yaw" || name === "pitch"
-          ? `${value}°`
-          : name === "zoom" || name === "spin"
-            ? value.toFixed(2)
-            : String(value);
+      output.textContent = String(slider(name));
     };
     show();
     input.addEventListener("input", () => {
       show();
       invalidate();
-      if (name === "columns" || name === "rows") fitPreview();
-      // Both of these move how many whole turns an export lands on, which is
-      // what the preview paces itself by.
-      if (name === "spin" || name === "duration") refreshMotion();
+      if (name === "detail") {
+        fitPreview();
+        updateHint();
+      }
+      // Both of these move how fast the export turns, which is what the preview
+      // paces itself by.
+      if (name === "turns" || name === "seconds") refreshPlan();
     });
   }
 }
+
+/// Turning and zooming happen on the preview rather than on three more sliders.
+///
+/// They are the controls a drawing is actually framed with, and a slider is a
+/// poor handle for an angle: finding the view you want means reading a number,
+/// guessing, and looking again. Dragging is the same act as the thing it does.
+function bindCamera() {
+  let dragging = false;
+  let lastX = 0;
+  let lastY = 0;
+
+  screen.addEventListener("pointerdown", (event) => {
+    if (!hasDrawing()) return;
+    dragging = true;
+    lastX = event.clientX;
+    lastY = event.clientY;
+    screen.setPointerCapture(event.pointerId);
+    screen.classList.add("turning");
+  });
+
+  screen.addEventListener("pointermove", (event) => {
+    if (!dragging) return;
+    // A quarter degree a pixel: a drag across the pane is most of a full turn,
+    // and a few pixels is still a nudge.
+    state.yaw = wrap(state.yaw + (event.clientX - lastX) * 0.25);
+    state.pitch = clamp(state.pitch - (event.clientY - lastY) * 0.25, -90, 90);
+    lastX = event.clientX;
+    lastY = event.clientY;
+    invalidate();
+  });
+
+  const release = (event: PointerEvent) => {
+    if (!dragging) return;
+    dragging = false;
+    screen.releasePointerCapture(event.pointerId);
+    screen.classList.remove("turning");
+  };
+  screen.addEventListener("pointerup", release);
+  screen.addEventListener("pointercancel", release);
+
+  screen.addEventListener(
+    "wheel",
+    (event) => {
+      if (!hasDrawing()) return;
+      event.preventDefault();
+      // Multiplicative, so a notch is the same proportion of the size at every
+      // zoom rather than a bigger jump the further out you are.
+      state.zoom = clamp(state.zoom * Math.exp(-event.deltaY * 0.002), 0.25, 4);
+      invalidate();
+    },
+    { passive: false },
+  );
+
+  screen.addEventListener("dblclick", () => {
+    Object.assign(state, HOME);
+    invalidate();
+  });
+}
+
+const clamp = (value: number, low: number, high: number) =>
+  Math.min(Math.max(value, low), high);
+
+/// Yaw runs off either end of a turn, so it comes back round rather than
+/// stopping — nothing about the model has a front.
+const wrap = (degrees: number) => ((((degrees + 180) % 360) + 360) % 360) - 180;
 
 function bindSegmented(id: string, onPick: (value: string) => void) {
   const container = element(id);
@@ -272,7 +348,7 @@ async function loadDrawing(label: string) {
   status.className = "status";
   status.textContent = "";
   time = 0;
-  await refreshMotion();
+  await refreshPlan();
   fitPreview();
   invalidate();
   tick();
@@ -312,9 +388,10 @@ renderButton.addEventListener("click", async () => {
 });
 
 bindSliders();
+bindCamera();
 bindSegmented("motion", (value) => {
   state.still = value === "still";
-  refreshMotion();
+  refreshPlan();
 });
 bindSegmented("format", (value) => {
   state.format = value;
@@ -322,6 +399,7 @@ bindSegmented("format", (value) => {
 });
 buildThemes();
 applyTheme(THEMES[0]);
+updateHint();
 new ResizeObserver(fitPreview).observe(screen);
 fitPreview();
 preview.textContent = "open a drawing to begin";

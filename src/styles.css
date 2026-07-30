@@ -29,12 +29,19 @@
   --cell-advance: 0.6;
   --cell-line: 1.32;
 
-  --bg: #1a1b26;
-  --panel: #16161e;
-  --fg: #c0caf5;
-  --dim: #565f89;
-  --accent: #7aa2f7;
-  --line: #232433;
+  /* The two colours a render is made of. Everything else in the window is
+     mixed from them, so the chrome follows the art rather than sitting in some
+     third palette of its own — and a theme is then a real choice about the
+     output instead of a skin. */
+  --ink: #0b0b0b;
+  --paper: #f6f5f2;
+
+  --bg: var(--paper);
+  --fg: var(--ink);
+  --panel: color-mix(in srgb, var(--paper) 94%, var(--ink));
+  --line: color-mix(in srgb, var(--paper) 80%, var(--ink));
+  --dim: color-mix(in srgb, var(--paper) 42%, var(--ink));
+  --accent: var(--ink);
 }
 
 * {
@@ -231,12 +238,15 @@ button:disabled {
   word-break: break-all;
 }
 
+/* The only two colours in the window that are not mixed from the theme. A
+   render can be black on white or white on black, so these have to stay legible
+   against either — which rules out both the pale and the deep ends. */
 .status.error {
-  color: #f7768e;
+  color: #e5484d;
 }
 
 .status.done {
-  color: #9ece6a;
+  color: #30a46c;
 }
 
 /* Stage */
@@ -248,10 +258,21 @@ button:disabled {
   padding: 34px 16px 16px;
 }
 
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.bar .hint {
+  margin: 0;
+  margin-left: auto;
+}
+
 .themes {
   display: flex;
   gap: 6px;
-  margin-bottom: 12px;
   flex-wrap: wrap;
 }
 
@@ -263,10 +284,14 @@ button:disabled {
   padding: 5px 9px;
 }
 
+/* Both of a scheme's colours at once: the ink filled, the paper around it. One
+   dot could only ever show half of what the button does. */
 .swatch {
-  width: 9px;
-  height: 9px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
+  outline: 2px solid;
+  outline-offset: 0;
 }
 
 .screen {
@@ -279,6 +304,13 @@ button:disabled {
   border: 1px solid var(--line);
   border-radius: 10px;
   overflow: hidden;
+  cursor: grab;
+  /* The preview is a block of text, and dragging across text selects it. */
+  user-select: none;
+}
+
+.screen.turning {
+  cursor: grabbing;
 }
 
 /* Regular, against the heavier chrome around it. The exporter paints frames
