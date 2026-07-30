@@ -13,8 +13,9 @@ use std::f64::consts::TAU;
 use std::sync::Mutex;
 use std::time::SystemTime;
 
-use crate::art::canvas::{ink_coverage, AsciiCanvas, AsciiRamp, CELL_ASPECT};
+use crate::art::canvas::{ink_coverage, AsciiCanvas, CELL_ASPECT};
 use crate::art::generator::{Generator, GlyphGenerator};
+use crate::art::glyphs::{ALPHABET, CELL_PIXELS, CELL_PIXELS_TALL, CELL_PIXELS_WIDE};
 use crate::art::params::Params;
 
 #[derive(Clone, Copy, Debug)]
@@ -308,22 +309,19 @@ pub struct Renderer {
     pub yaw: f64,
     pub pitch: f64,
     pub zoom: f64,
-    /// Glyphs the surface is shaded with. A drawing lifted into a solid keeps
-    /// the ink ramp it was read with, so head-on it reproduces itself.
-    pub ramp: &'static [u8],
     lights: [Light; 3],
     /// The brightest any surface in this rig can be lit, so the diffuse sum can
     /// be read as a fraction of what is on offer rather than of what three
     /// lights would add up to if they all struck the same face square on — which
     /// they cannot, since they point in different directions. Without it the
     /// brightest part of a render never asks for the heaviest character and the
-    /// top of the ramp goes unused.
+    /// top of the alphabet goes unused.
     peak: f64,
     /// How dark the darkest part of the solid is allowed to get.
     ///
     /// A floor rather than a light. Nothing the solid covers should thin out
     /// into the background, so the whole model sits in the upper part of the
-    /// ramp and the shading moves it around inside that band. Dropped to
+    /// alphabet and the shading moves it around inside that band. Dropped to
     /// nothing, faces turned away from every light come out as spaces and tear
     /// holes through the middle of the silhouette.
     pub ambient: f64,
@@ -332,16 +330,16 @@ pub struct Renderer {
     /// `ascii3d` uses an exponent of 1000, which on a pixel raster puts a pin
     /// of light on a curved surface. Here a highlight has to survive being
     /// averaged over a whole cell before it can pick a heavier character, so it
-    /// is spread far wider — at 1000 it would land between cells and never
+    /// is spread far wider — at 1000 it would land between samples and never
     /// appear at all.
     pub specular: f64,
     pub shininess: f64,
     /// How much of the shade comes from distance rather than from the light.
     ///
     /// Flat-topped columns all share one normal, so lighting alone paints every
-    /// cap the same glyph and the relief disappears into a slab. Mixing in
-    /// nearness restores it, and is faithful to the source: a taller column is
-    /// a nearer one, so head-on the render reproduces the drawing's own ink.
+    /// cap the same and the relief disappears into a slab. Mixing in nearness
+    /// restores it, and is faithful to the source: a taller column is a nearer
+    /// one, so head-on the render reproduces the drawing's own ink.
     pub depth_cueing: f64,
 }
 
@@ -373,9 +371,8 @@ impl Renderer {
             yaw: 0.0,
             pitch: 0.0,
             zoom: 1.0,
-            ramp: AsciiRamp::Ink.bytes(),
-            lights,
             peak,
+            lights,
             ambient: 0.42,
             specular: 0.30,
             shininess: 24.0,
@@ -383,8 +380,71 @@ impl Renderer {
         }
     }
 
-    /// How brightly a face pointing along `normal` is lit, from 0 to 1.
-    fn lit(&self, normal: Vector3) -> f64 {
+    /// `yaw` is passed rather than read from the field so one prepared renderer
+    /// can serve every frame of a spin without being rebuilt.
+    pub fn canvas_at(&self, columns: usize, rows: usize, yaw: f64) -> AsciiCanvas {
+        let mut canvas = AsciiCanvas::new(columns, rows, false);
+        if columns == 0 || rows == 0 || self.solid.faces.is_empty() {
+            return canvas;
+        }
+
+        // The solid is rasterised finer than the grid it lands on and only then
+        // read back as characters, so a cell is decided by CELL_PIXELS samples
+        // instead of by one. See `art::glyphs`.
+        let mut surface = Surface::new(columns, rows);
+
+        let rotation = Rotation::new(yaw, self.pitch);
+        let (horizontal, vertical) = self.solid.bound.extents(self.pitch);
+        // A cell is CELL_PIXELS_TALL / CELL_PIXELS_WIDE = CELL_ASPECT times
+        // taller than it is wide, which is exactly how much taller than wide the
+        // world models it. So the sample grid is square in world terms and one
+        // scale serves both axes — the correction the cell grid needed is gone.
+        let scale = (surface.width as f64 / (2.0 * horizontal))
+            .min(surface.height as f64 / (2.0 * vertical))
+            * self.zoom;
+        let center_x = (surface.width as f64 - 1.0) / 2.0;
+        let center_y = (surface.height as f64 - 1.0) / 2.0;
+
+        let project = |point: Vector3| -> Vector3 {
+            let spun = rotation.apply(point);
+            Vector3::new(center_x + spun.x * scale, center_y - spun.y * scale, spun.z)
+        };
+
+        let depth_extent = self.solid.bound.depth_extent(yaw, self.pitch);
+        for face in &self.solid.faces {
+            let normal = rotation.apply(face.normal);
+            let tone = self.tone(normal, depth_extent);
+
+            let a = project(face.a);
+            let b = project(face.b);
+            let c = project(face.c);
+            let d = project(face.d);
+
+            surface.fill(a, b, c, tone);
+            surface.fill(a, c, d, tone);
+
+            // A face smaller than one sample can fall between sample centres and
+            // vanish. Its own centre always lands inside it, so plotting that
+            // too guarantees every face contributes something.
+            surface.plot(
+                Vector3::new(
+                    (a.x + b.x + c.x + d.x) / 4.0,
+                    (a.y + b.y + c.y + d.y) / 4.0,
+                    (a.z + b.z + c.z + d.z) / 4.0,
+                ),
+                tone,
+            );
+        }
+
+        surface.read_into(&mut canvas);
+        canvas
+    }
+
+    /// How bright a face pointing along `normal` is, as the two coefficients of
+    /// `shade = base + gain * z` — depth cueing is the only part that varies
+    /// across a flat face, and it varies linearly, so the per-sample work in the
+    /// rasteriser stays one multiply and one add.
+    fn tone(&self, normal: Vector3, depth_extent: f64) -> Tone {
         // Back faces are deliberately not culled: the solid's base sits behind
         // its own caps and shows through every hole in the drawing, and culling
         // it would open those holes onto nothing. Turning the normal to face the
@@ -398,135 +458,149 @@ impl Renderer {
         let mut highlight = 0.0;
         for light in &self.lights {
             diffuse += light.strength * normal.dot(light.direction).max(0.0);
-            highlight += light.strength * normal.dot(light.halfway).max(0.0).powf(self.shininess);
+            highlight +=
+                light.strength * normal.dot(light.halfway).max(0.0).powf(self.shininess);
         }
+        let diffuse = (diffuse / self.peak).min(1.0);
+        let highlight = (highlight / self.peak).min(1.0);
 
-        (diffuse / self.peak).min(1.0) + self.specular * (highlight / self.peak).min(1.0)
-    }
+        // Light and nearness together, both running 0 to 1. `nearness` is
+        // `(z / depth_extent + 1) / 2`, which is affine in z — so the whole
+        // shade stays affine in z and the rasteriser's per-sample work is one
+        // multiply and one add.
+        let cue = self.depth_cueing;
+        let lit = (1.0 - cue) * diffuse + cue * 0.5 + self.specular * highlight;
 
-    /// `yaw` is passed rather than read from the field so one prepared renderer
-    /// can serve every frame of a spin without being rebuilt.
-    pub fn canvas_at(&self, columns: usize, rows: usize, yaw: f64) -> AsciiCanvas {
-        let mut canvas = AsciiCanvas::new(columns, rows, false);
-        if columns == 0 || rows == 0 || self.solid.faces.is_empty() {
-            return canvas;
+        // Everything the solid covers starts at `ambient` and climbs from
+        // there, so the drawing reads as one dense object rather than as a
+        // scatter of light glyphs with the background showing between them. The
+        // background is the only thing left at zero, and zero is a space.
+        Tone {
+            base: (self.ambient + (1.0 - self.ambient) * lit) as f32,
+            gain: ((1.0 - self.ambient) * cue / (2.0 * depth_extent)) as f32,
         }
-
-        let mut depths = vec![f64::NEG_INFINITY; columns * rows];
-        let rotation = Rotation::new(yaw, self.pitch);
-        let depth_extent = self.solid.bound.depth_extent(yaw, self.pitch);
-        let (horizontal, vertical) = self.solid.bound.extents(self.pitch);
-        let scale = (columns as f64 / (2.0 * horizontal))
-            .min(rows as f64 * CELL_ASPECT / (2.0 * vertical))
-            * self.zoom;
-        let center_x = (columns as f64 - 1.0) / 2.0;
-        let center_y = (rows as f64 - 1.0) / 2.0;
-        let vertical_scale = scale / CELL_ASPECT;
-
-        let project = |point: Vector3| -> Vector3 {
-            let spun = rotation.apply(point);
-            Vector3::new(
-                center_x + spun.x * scale,
-                center_y - spun.y * vertical_scale,
-                spun.z,
-            )
-        };
-
-        for face in &self.solid.faces {
-            let lit = self.lit(rotation.apply(face.normal));
-
-            let a = project(face.a);
-            let b = project(face.b);
-            let c = project(face.c);
-            let d = project(face.d);
-
-            let nearness =
-                (((a.z + b.z + c.z + d.z) / 4.0 / depth_extent + 1.0) / 2.0).clamp(0.0, 1.0);
-            let shade = (1.0 - self.depth_cueing) * lit + self.depth_cueing * nearness;
-            let glyph = AsciiRamp::byte_for_intensity(
-                self.ambient + (1.0 - self.ambient) * shade,
-                self.ramp,
-            );
-
-            fill(a, b, c, glyph, &mut canvas, &mut depths);
-            fill(a, c, d, glyph, &mut canvas, &mut depths);
-
-            // A face smaller than one cell can fall between cell centres and
-            // vanish. Its centre always lands inside it, so plotting that too
-            // guarantees every face contributes at least one character.
-            plot(
-                Vector3::new(
-                    (a.x + b.x + c.x + d.x) / 4.0,
-                    (a.y + b.y + c.y + d.y) / 4.0,
-                    (a.z + b.z + c.z + d.z) / 4.0,
-                ),
-                glyph,
-                &mut canvas,
-                &mut depths,
-            );
-        }
-
-        canvas
     }
 }
 
-fn plot(point: Vector3, glyph: u8, canvas: &mut AsciiCanvas, depths: &mut [f64]) {
-    let column = point.x.round();
-    let row = point.y.round();
-    if column < 0.0 || column >= canvas.columns as f64 || row < 0.0 || row >= canvas.rows as f64 {
-        return;
-    }
-    let index = row as usize * canvas.columns + column as usize;
-    if point.z <= depths[index] {
-        return;
-    }
-    depths[index] = point.z;
-    canvas.glyphs[index] = glyph;
+/// A flat face's brightness, as a function of how near to the eye a sample on
+/// it is.
+#[derive(Clone, Copy)]
+struct Tone {
+    base: f32,
+    gain: f32,
 }
 
-fn fill(a: Vector3, b: Vector3, c: Vector3, glyph: u8, canvas: &mut AsciiCanvas, depths: &mut [f64]) {
-    fn edge(p: Vector3, q: Vector3, x: f64, y: f64) -> f64 {
-        (q.x - p.x) * (y - p.y) - (q.y - p.y) * (x - p.x)
+impl Tone {
+    fn at(self, z: f32) -> f32 {
+        (self.base + self.gain * z).clamp(0.0, 1.0)
+    }
+}
+
+/// The sub-cell raster the solid is drawn into before it is read back as
+/// characters.
+struct Surface {
+    columns: usize,
+    rows: usize,
+    width: usize,
+    height: usize,
+    shade: Vec<f32>,
+    depths: Vec<f32>,
+}
+
+impl Surface {
+    fn new(columns: usize, rows: usize) -> Self {
+        let width = columns * CELL_PIXELS_WIDE;
+        let height = rows * CELL_PIXELS_TALL;
+        Self {
+            columns,
+            rows,
+            width,
+            height,
+            shade: vec![0.0; width * height],
+            depths: vec![f32::NEG_INFINITY; width * height],
+        }
     }
 
-    let area = edge(a, b, c.x, c.y);
-    if area.abs() <= 1e-9 {
-        return;
+    fn plot(&mut self, point: Vector3, tone: Tone) {
+        let x = point.x.round();
+        let y = point.y.round();
+        if x < 0.0 || x >= self.width as f64 || y < 0.0 || y >= self.height as f64 {
+            return;
+        }
+        self.sample(y as usize * self.width + x as usize, point.z as f32, tone);
     }
 
-    let min_column = a.x.min(b.x).min(c.x).floor().max(0.0) as usize;
-    let max_column = (a.x.max(b.x).max(c.x).ceil()).min(canvas.columns as f64 - 1.0);
-    let min_row = a.y.min(b.y).min(c.y).floor().max(0.0) as usize;
-    let max_row = (a.y.max(b.y).max(c.y).ceil()).min(canvas.rows as f64 - 1.0);
-    if max_column < 0.0 || max_row < 0.0 {
-        return;
-    }
-    let max_column = max_column as usize;
-    let max_row = max_row as usize;
-    if min_column > max_column || min_row > max_row {
-        return;
+    fn sample(&mut self, index: usize, z: f32, tone: Tone) {
+        if z <= self.depths[index] {
+            return;
+        }
+        self.depths[index] = z;
+        self.shade[index] = tone.at(z);
     }
 
-    for row in min_row..=max_row {
-        for column in min_column..=max_column {
-            let x = column as f64;
-            let y = row as f64;
-            // Dividing by the signed area normalises the winding, so a point is
-            // inside whenever all three weights are non-negative.
-            let weight_a = edge(b, c, x, y) / area;
-            let weight_b = edge(c, a, x, y) / area;
-            let weight_c = edge(a, b, x, y) / area;
-            if weight_a < -1e-9 || weight_b < -1e-9 || weight_c < -1e-9 {
-                continue;
+    fn fill(&mut self, a: Vector3, b: Vector3, c: Vector3, tone: Tone) {
+        fn edge(p: Vector3, q: Vector3, x: f64, y: f64) -> f64 {
+            (q.x - p.x) * (y - p.y) - (q.y - p.y) * (x - p.x)
+        }
+
+        let area = edge(a, b, c.x, c.y);
+        if area.abs() <= 1e-9 {
+            return;
+        }
+
+        let min_x = a.x.min(b.x).min(c.x).floor().max(0.0) as usize;
+        let max_x = (a.x.max(b.x).max(c.x).ceil()).min(self.width as f64 - 1.0);
+        let min_y = a.y.min(b.y).min(c.y).floor().max(0.0) as usize;
+        let max_y = (a.y.max(b.y).max(c.y).ceil()).min(self.height as f64 - 1.0);
+        if max_x < 0.0 || max_y < 0.0 {
+            return;
+        }
+        let max_x = max_x as usize;
+        let max_y = max_y as usize;
+        if min_x > max_x || min_y > max_y {
+            return;
+        }
+
+        for row in min_y..=max_y {
+            for column in min_x..=max_x {
+                let x = column as f64;
+                let y = row as f64;
+                // Dividing by the signed area normalises the winding, so a point
+                // is inside whenever all three weights are non-negative.
+                let weight_a = edge(b, c, x, y) / area;
+                let weight_b = edge(c, a, x, y) / area;
+                let weight_c = edge(a, b, x, y) / area;
+                if weight_a < -1e-9 || weight_b < -1e-9 || weight_c < -1e-9 {
+                    continue;
+                }
+
+                let z = weight_a * a.z + weight_b * b.z + weight_c * c.z;
+                self.sample(row * self.width + column, z as f32, tone);
             }
+        }
+    }
 
-            let z = weight_a * a.z + weight_b * b.z + weight_c * c.z;
-            let index = row * canvas.columns + column;
-            if z <= depths[index] {
-                continue;
+    /// Gathers each cell's samples and takes the character nearest them.
+    fn read_into(&self, canvas: &mut AsciiCanvas) {
+        let mut cell = [0f32; CELL_PIXELS];
+        for row in 0..self.rows {
+            for column in 0..self.columns {
+                let mut lit = false;
+                for y in 0..CELL_PIXELS_TALL {
+                    let from = (row * CELL_PIXELS_TALL + y) * self.width
+                        + column * CELL_PIXELS_WIDE;
+                    let into = y * CELL_PIXELS_WIDE;
+                    let samples = &self.shade[from..from + CELL_PIXELS_WIDE];
+                    lit |= samples.iter().any(|&sample| sample > 0.0);
+                    cell[into..into + CELL_PIXELS_WIDE].copy_from_slice(samples);
+                }
+                // Most of a frame is empty background, and matching it against
+                // ninety-five glyphs to be told it is a space is the single
+                // biggest cost in here.
+                if lit {
+                    canvas.glyphs[row * self.columns + column] = ALPHABET.nearest(&cell);
+                }
             }
-            depths[index] = z;
-            canvas.glyphs[index] = glyph;
         }
     }
 }
