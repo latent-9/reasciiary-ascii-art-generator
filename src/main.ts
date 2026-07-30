@@ -134,9 +134,20 @@ function fitPreview() {
   preview.style.fontSize = `${Math.max(Math.min(width, height), 1)}px`;
 }
 
+const FRAME_MS = 80;
+
 let time = 0;
 let period: number | null = null;
 let pending = false;
+/// Whether the frame on screen is out of date. A still holds one image for as
+/// long as nobody touches a control, and asking the backend to redraw it a
+/// dozen times a second lit up a core for nothing — every one of those frames
+/// lifts the whole drawing into a solid again.
+let stale = false;
+
+const invalidate = () => {
+  stale = true;
+};
 
 async function refreshPeriod() {
   if (!hasDrawing()) return;
@@ -145,11 +156,15 @@ async function refreshPeriod() {
   } catch {
     period = null;
   }
+  invalidate();
 }
 
 async function tick() {
   if (!hasDrawing() || pending) return;
   pending = true;
+  // Cleared here rather than by the caller, so a change that arrives while a
+  // frame is still in flight survives to the next pass instead of being lost.
+  stale = false;
   try {
     preview.textContent = await invoke<string>("preview", {
       request: request(),
@@ -164,10 +179,11 @@ async function tick() {
 
 setInterval(() => {
   if (!state.still && period) {
-    time = (time + 0.08) % period;
+    time = (time + FRAME_MS / 1000) % period;
+    invalidate();
   }
-  tick();
-}, 80);
+  if (stale) tick();
+}, FRAME_MS);
 
 function updateHint() {
   if (state.format === "gif" && slider("duration") > 12) {
@@ -196,6 +212,7 @@ function bindSliders() {
     show();
     input.addEventListener("input", () => {
       show();
+      invalidate();
       if (name === "columns" || name === "rows") fitPreview();
       if (name === "spin") refreshPeriod();
       if (name === "duration") updateHint();
@@ -238,6 +255,7 @@ async function loadDrawing(label: string) {
   time = 0;
   await refreshPeriod();
   fitPreview();
+  invalidate();
   tick();
 }
 
