@@ -32,15 +32,35 @@ impl Vector3 {
         Self { x, y, z }
     }
 
-    fn dot(self, other: Self) -> f64 {
+    pub fn dot(self, other: Self) -> f64 {
         self.x * other.x + self.y * other.y + self.z * other.z
     }
 
-    fn negated(self) -> Self {
+    /// One point taken from another: the direction from `other` to `self`, and
+    /// its length is how far apart they are.
+    pub fn minus(self, other: Self) -> Self {
+        Self::new(self.x - other.x, self.y - other.y, self.z - other.z)
+    }
+
+    pub fn length(self) -> f64 {
+        self.dot(self).sqrt()
+    }
+
+    /// The direction at right angles to both, which is how a surface built out
+    /// of two parameters says which way it faces.
+    pub fn cross(self, other: Self) -> Self {
+        Self::new(
+            self.y * other.z - self.z * other.y,
+            self.z * other.x - self.x * other.z,
+            self.x * other.y - self.y * other.x,
+        )
+    }
+
+    pub fn negated(self) -> Self {
         Self::new(-self.x, -self.y, -self.z)
     }
 
-    fn normalized(self) -> Self {
+    pub fn normalized(self) -> Self {
         let length = (self.x * self.x + self.y * self.y + self.z * self.z).sqrt();
         if length <= 1e-12 {
             return Self::new(0.0, 0.0, 1.0);
@@ -85,13 +105,35 @@ impl Rotation {
 /// One flat face of the solid, carrying the normal it should be lit by and how
 /// much of the light around it ever reaches it.
 #[derive(Clone, Copy)]
-struct Face {
+pub struct Face {
     a: Vector3,
     b: Vector3,
     c: Vector3,
     d: Vector3,
     normal: Vector3,
     openness: f64,
+}
+
+impl Face {
+    /// A quad under an open sky, which is what a surface with no heightfield
+    /// under it is: nothing of it stands over anything else of it, so there is
+    /// nothing to take the light away.
+    pub fn new(corners: [Vector3; 4], normal: Vector3) -> Self {
+        let [a, b, c, d] = corners;
+        Self { a, b, c, d, normal, openness: 1.0 }
+    }
+
+    pub fn normal(self) -> Vector3 {
+        self.normal
+    }
+
+    pub fn middle(self) -> Vector3 {
+        Vector3::new(
+            (self.a.x + self.b.x + self.c.x + self.d.x) / 4.0,
+            (self.a.y + self.b.y + self.c.y + self.d.y) / 4.0,
+            (self.a.z + self.b.z + self.c.z + self.d.z) / 4.0,
+        )
+    }
 }
 
 /// Yaws the fit is measured at. Fine enough that no corner slips between two of
@@ -101,6 +143,9 @@ const TURN_STEPS: usize = 180;
 /// Points on the rim of a round bound. Its extremes all lie on a rim, so this
 /// is the whole of what a fit has to look at.
 const RIM_STEPS: usize = 64;
+
+/// Rims a ball is cut into, from one pole to the other.
+const BALL_RINGS: usize = 16;
 
 /// The shape the frame is fitted to.
 ///
@@ -112,6 +157,8 @@ enum Bound {
     Slab { half_width: f64, half_height: f64, half_depth: f64 },
     /// A relief cut on a disc rather than on a rectangle.
     Puck { radius: f64, half_depth: f64 },
+    /// A shape with no long way round, which a turn cannot change the size of.
+    Ball { radius: f64 },
 }
 
 impl Bound {
@@ -142,6 +189,23 @@ impl Bound {
                     let angle = TAU * step as f64 / RIM_STEPS as f64;
                     let (x, y) = (radius * angle.cos(), radius * angle.sin());
                     [-half_depth, half_depth].map(|z| Vector3::new(x, y, z))
+                })
+                .collect(),
+            // A sphere is extreme in every direction at once and has no corner
+            // to stand in for that, so it is sampled instead. The gap between
+            // samples costs a percent of the radius, which is a fifth of a
+            // character cell on a frame wide enough to matter.
+            Self::Ball { radius } => (0..BALL_RINGS)
+                .flat_map(|ring| {
+                    let lift = TAU / 2.0 * (ring as f64 + 0.5) / BALL_RINGS as f64;
+                    (0..RIM_STEPS).map(move |spoke| {
+                        let angle = TAU * spoke as f64 / RIM_STEPS as f64;
+                        Vector3::new(
+                            radius * lift.sin() * angle.cos(),
+                            radius * lift.sin() * angle.sin(),
+                            radius * lift.cos(),
+                        )
+                    })
                 })
                 .collect(),
         }
@@ -271,6 +335,25 @@ impl Solid {
         }
 
         Self { faces: build_faces(heights, rows, columns), bound }
+    }
+
+    /// A solid somebody else has the quads for.
+    ///
+    /// The lift is a way of getting a surface out of a drawing, and everything
+    /// after it — the camera, the rig, the raster, the alphabet — only ever sees
+    /// the surface. So a tool with a surface of its own can hand one over and
+    /// have the rest for nothing.
+    ///
+    /// It measures its own ball rather than being told one: the quads are all
+    /// there is to go on, and a shape given by a formula rarely knows its own
+    /// reach in a form worth writing down.
+    pub fn from_quads(faces: Vec<Face>) -> Self {
+        let radius = faces
+            .iter()
+            .flat_map(|face| [face.a, face.b, face.c, face.d])
+            .map(Vector3::length)
+            .fold(0.001, f64::max);
+        Self { faces, bound: Bound::Ball { radius } }
     }
 
     /// The same solid, fitted as the disc it is rather than as the rectangle it
@@ -1019,13 +1102,25 @@ impl Surface {
 /// A full turn is the loop, so `loop_duration` is exactly the period. That is
 /// what lets the exporter sample a seamless GIF without the generator knowing
 /// it is being exported.
-pub struct SpinningAscii {
+///
+/// It says nothing about where the solid came from, so any tool whose whole
+/// animation is a turn can be this rather than write it out again.
+pub struct Spinning {
     renderer: Renderer,
     spin_rate: f64,
     still: bool,
 }
 
-impl GlyphGenerator for SpinningAscii {
+impl Spinning {
+    /// `spin_rate` is radians a second; `still` holds the solid at the yaw the
+    /// renderer already carries.
+    pub fn new(mut renderer: Renderer, spin_rate: f64, still: bool) -> Self {
+        renderer.spins = !still && spin_rate != 0.0;
+        Self { renderer, spin_rate, still }
+    }
+}
+
+impl GlyphGenerator for Spinning {
     fn canvas(&self, columns: usize, rows: usize, time: f64) -> AsciiCanvas {
         let yaw = if self.still {
             self.renderer.yaw
@@ -1108,11 +1203,11 @@ pub fn build(params: &Params) -> Result<Generator, String> {
     renderer.pitch = params.f64("pitch", 0.5_f64.to_degrees())?.to_radians();
     renderer.zoom = params.f64("zoom", 0.92)?;
 
-    let spin_rate = params.f64("spin", 1.2)?;
-    let still = params.is_set("still");
-    renderer.spins = !still && spin_rate != 0.0;
-
-    Ok(Generator::Glyph(Box::new(SpinningAscii { renderer, spin_rate, still })))
+    Ok(Generator::Glyph(Box::new(Spinning::new(
+        renderer,
+        params.f64("spin", 1.2)?,
+        params.is_set("still"),
+    ))))
 }
 
 #[cfg(test)]
@@ -1325,7 +1420,7 @@ mod tests {
     /// half of this measures.
     #[test]
     fn a_spin_loops_over_one_full_turn() {
-        let spinning = SpinningAscii {
+        let spinning = Spinning {
             renderer: Renderer::new(Solid::from_text(DIAMOND, 8.0)),
             spin_rate: 1.2,
             still: false,
@@ -1480,7 +1575,7 @@ mod tests {
 
     #[test]
     fn a_still_has_no_loop() {
-        let still = SpinningAscii {
+        let still = Spinning {
             renderer: Renderer::new(Solid::from_text(DIAMOND, 8.0)),
             spin_rate: 1.2,
             still: true,
