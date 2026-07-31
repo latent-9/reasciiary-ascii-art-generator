@@ -285,17 +285,17 @@ fn build_faces(heights: &[f64], rows: usize, columns: usize) -> Vec<Face> {
                 (height(row as i64 + 1, column as i64), Vector3::new(0.0, -1.0, 0.0), (x0, y0), (x1, y0)),
             ];
 
-            for (neighbour, normal, p, q) in walls {
+            for (neighbour, axis, p, q) in walls {
                 if top <= neighbour {
                     continue;
                 }
-                for (low, high) in [(neighbour, top), (-top, -neighbour)] {
+                for (low, high, side) in [(neighbour, top, near), (-top, -neighbour, far)] {
                     faces.push(Face {
                         a: Vector3::new(p.0, p.1, low),
                         b: Vector3::new(q.0, q.1, low),
                         c: Vector3::new(q.0, q.1, high),
                         d: Vector3::new(p.0, p.1, high),
-                        normal,
+                        normal: bevelled(axis, side),
                     });
                 }
             }
@@ -303,6 +303,27 @@ fn build_faces(heights: &[f64], rows: usize, columns: usize) -> Vec<Face> {
     }
 
     faces
+}
+
+/// A wall's normal, rolled off the face it descends from.
+///
+/// A rim on a cut relief is not a knife edge — the surface turns over into its
+/// own side, and how it turns is decided by the slope it turns off. The axis
+/// alone is the knife edge, and every wall in a heightfield that runs the same
+/// way shares it exactly: seen from near edge-on, where walls are the whole
+/// picture, that is one normal, one tone and one character across the frame, no
+/// matter what the ink underneath is doing. Rolling the face in gives the rim
+/// the drawing back, and it is the same argument the caps take their tilt from.
+///
+/// A third, so the wall still reads as a side rather than as more of the front.
+fn bevelled(axis: Vector3, face: Vector3) -> Vector3 {
+    const ROLL: f64 = 0.34;
+    Vector3::new(
+        axis.x + ROLL * face.x,
+        axis.y + ROLL * face.y,
+        axis.z + ROLL * face.z,
+    )
+    .normalized()
 }
 
 /// One directional light, resolved so the per-face work is two dot products.
@@ -1020,12 +1041,47 @@ mod tests {
         );
     }
 
-    /// The cap of every cell, in reading order. Every grid tested here stands
-    /// clear of zero, so no cell is skipped and an index is a cell.
+    /// Turned towards edge-on, walls are most of what there is to see, and a
+    /// bare axis makes every wall running the same way one normal — one tone
+    /// across the frame, whatever the ink under it is doing. Rolling each one
+    /// off the face it drops from is what keeps the drawing in the model's side.
+    #[test]
+    fn a_wall_rolls_off_the_face_it_drops_from() {
+        let heights: Vec<f64> = (0..25).map(|index| (index % 5) as f64 + 1.0).collect();
+        let walls = walls(&heights, 5, 5);
+
+        assert!(!walls.is_empty(), "a rise steps down to the paper on every side");
+        assert!(
+            walls.iter().all(|normal| normal.z > 0.1),
+            "a rim turns over towards its own face rather than straight out to the side"
+        );
+        assert!(
+            walls.iter().all(|normal| normal.x.hypot(normal.y) > 0.9),
+            "but only turns over: a wall that stops reading as a side has taken too much"
+        );
+    }
+
+    /// The near face of every cell, in reading order. Every grid tested here
+    /// stands clear of zero, so no cell is skipped and an index is a cell.
+    ///
+    /// A face lies flat at one depth; a wall climbs from one to another. That
+    /// tells the two apart whatever their normals are doing, and the sign of the
+    /// normal then picks the near one of the pair.
     fn caps(heights: &[f64], rows: usize, columns: usize) -> Vec<Vector3> {
         build_faces(heights, rows, columns)
             .into_iter()
-            .filter(|face| face.normal.z > 0.0)
+            .filter(|face| face.a.z == face.c.z && face.normal.z > 0.0)
+            .map(|face| face.normal)
+            .collect()
+    }
+
+    /// The near side's walls. A wall climbs through depth where a face lies
+    /// flat at one, and the near half of the pair is the half in front of the
+    /// origin the drawing is struck through.
+    fn walls(heights: &[f64], rows: usize, columns: usize) -> Vec<Vector3> {
+        build_faces(heights, rows, columns)
+            .into_iter()
+            .filter(|face| face.a.z != face.c.z && face.a.z >= 0.0)
             .map(|face| face.normal)
             .collect()
     }
