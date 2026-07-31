@@ -20,7 +20,9 @@
 //! So there is no root here. A square is picked out by which cell of the grid it
 //! is and which scale it belongs to, and everything about it is a function of
 //!
-//!     over = phase - scale
+//! ```text
+//! over = phase - scale
+//! ```
 //!
 //! and of the cell's number, both of which the doubling carries across
 //! unchanged: the cell a scale down inherits the number along with the job. Its
