@@ -147,6 +147,12 @@ export const TOOLS: Tool[] = [
         title: "Solid",
         controls: [
           { kind: "range", flag: "depth", label: "Depth", min: 1, max: 40, step: 1, value: 8 },
+          // How wide a picture is read before it is lifted. A drawing brings its
+          // own grid and ignores this — it was written at a size, and resampling
+          // it would blur the very cells whose ink is the height.
+          { kind: "range", flag: "relief", label: "Detail", min: 16, max: 320, step: 8, value: 120 },
+          { kind: "range", flag: "contrast", label: "Contrast", min: 0.2, max: 4, step: 0.1, value: 1 },
+          { kind: "switch", flag: "invert", label: "Invert", value: false },
         ],
       },
       { title: "Motion", controls: [TURNS, ...MOVEMENT, STILL] },

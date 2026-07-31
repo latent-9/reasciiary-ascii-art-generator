@@ -1,18 +1,25 @@
-//! Lifts flat ASCII art into a solid and renders it back out as ASCII from any
+//! Lifts a flat drawing into a solid and renders it back out as ASCII from any
 //! angle.
 //!
 //! Port of `asciiary/Ascii3D.swift`.
 //!
 //! The renderers this follows all start from a mesh somebody modelled. This
-//! starts from a text file, so it needs one step they do not: a rule for what
+//! starts from a flat file, so it needs one step they do not: a rule for what
 //! the third dimension of a drawing actually *is*. The rule is ink. A glyph
 //! that fills more of its cell stands taller, so `@` rises, `.` barely lifts,
 //! and a space is a hole.
+//!
+//! A picture is the same rule with the reading swapped: light for ink. It
+//! arrives as a level per cell exactly as a drawing does — see [`Field`] — so
+//! everything past that point cannot tell which one it was handed.
 
 use std::f64::consts::TAU;
-use std::sync::Mutex;
+use std::path::Path;
+use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
+use image::imageops::{resize, FilterType};
+use image::{ImageReader, RgbaImage};
 use rayon::prelude::*;
 
 use crate::art::canvas::{ink_coverage, AsciiCanvas, CELL_ASPECT};
@@ -20,6 +27,7 @@ use crate::art::generator::{Generator, GlyphGenerator};
 use crate::art::glyphs::{ALPHABET, CELL_PIXELS, CELL_PIXELS_TALL, CELL_PIXELS_WIDE};
 use crate::art::motion::Movement;
 use crate::art::params::Params;
+use crate::art::read::Tones;
 
 #[derive(Clone, Copy, Debug)]
 pub struct Vector3 {
@@ -283,26 +291,25 @@ impl Bound {
     }
 }
 
-/// A drawing's ink as a height for every cell, kept rather than spent.
+/// How much of every cell of a source is filled, from nothing to all of it.
 ///
-/// Lifting a drawing is reading its ink into a table and then building a surface
-/// over the table. Everything downstream only wants the surface, so the table
-/// used to be thrown away with the line that made it — but a movement is a thing
-/// done to the table, and the surface is rebuilt from it once a frame. Keeping
-/// it is what makes that cost the rebuilding rather than the re-reading.
-pub struct Relief {
-    heights: Vec<f64>,
+/// Two different things arrive here. A drawing's cells are characters and their
+/// level is how much ink one lays down; a picture's are patches and their level
+/// is how much light is in them. The lift only ever wanted a table of numbers
+/// on a grid, so the difference between the two ends at this type rather than
+/// running on through the surface, the camera and the alphabet.
+pub struct Field {
+    levels: Vec<f64>,
     rows: usize,
     columns: usize,
-    /// The tallest column in the drawing as written. Measured rather than taken
-    /// from `depth`, which keeps the fit tight when nothing in the drawing
-    /// reaches full ink.
-    tallest: f64,
 }
 
-impl Relief {
-    /// `depth` is how far the heaviest glyph stands out, in cell widths.
-    pub fn from_text(text: &str, depth: f64) -> Self {
+impl Field {
+    /// A drawing at the size it was written, a level a character.
+    ///
+    /// `tones` reads the same way it does for a picture: inverted, the paper
+    /// stands up and the strokes are cut out of it.
+    pub fn from_text(text: &str, tones: Tones) -> Self {
         let normalized = text.replace("\r\n", "\n").replace('\t', "    ");
         let mut lines: Vec<Vec<char>> =
             normalized.split('\n').map(|line| line.chars().collect()).collect();
@@ -319,15 +326,75 @@ impl Relief {
         let rows = lines.len();
         let columns = lines.iter().map(Vec::len).max().unwrap_or(0);
 
-        let mut heights = vec![0.0f64; rows * columns];
+        // Blank rather than nothing: a cell past the end of a short line is
+        // paper the same way a space is, and inverted the two have to stand up
+        // together or the drawing comes back with a ragged right edge.
+        let mut levels = vec![tones.level(0.0) as f64; rows * columns];
         for (row, line) in lines.iter().enumerate() {
             for (column, character) in line.iter().enumerate() {
-                heights[row * columns + column] = ink_coverage(*character) * depth;
+                levels[row * columns + column] =
+                    tones.level(ink_coverage(*character) as f32) as f64;
             }
         }
 
+        Self { levels, rows, columns }
+    }
+
+    /// A picture read down to `across` cells, a level each.
+    ///
+    /// `across` is the whole of how much of the picture survives into the
+    /// solid, and it is not the grid the render lands on: the two are free to
+    /// differ, so a photograph can be lifted at a fine relief and shown on a
+    /// coarse grid, or the other way about.
+    ///
+    /// Averaged down rather than sampled at a point. A photograph read a pixel
+    /// a cell is a heightfield of its own noise, and noise in a heightfield is
+    /// not a texture — it is a wall between every cell and its neighbour.
+    pub fn from_picture(image: &RgbaImage, across: usize, tones: Tones) -> Self {
+        let (wide, tall) = (image.width().max(1) as f64, image.height().max(1) as f64);
+        let columns = across.max(1);
+        // A cell is `CELL_ASPECT` times taller than it is wide and the lift
+        // models it that way, so a picture given one level a cell needs that
+        // divided back out or it arrives on the grid twice as tall as it is.
+        let rows = ((columns as f64 * tall) / (wide * CELL_ASPECT)).round().max(1.0) as usize;
+
+        let small = resize(image, columns as u32, rows as u32, FilterType::Triangle);
+        let levels = small
+            .pixels()
+            .map(|pixel| tones.light(&pixel.0) as f64)
+            .collect();
+        Self { levels, rows, columns }
+    }
+}
+
+/// A source's levels as a height for every cell, kept rather than spent.
+///
+/// Lifting is reading a source into a table and then building a surface over
+/// the table. Everything downstream only wants the surface, so the table used to
+/// be thrown away with the line that made it — but a movement is a thing done to
+/// the table, and the surface is rebuilt from it once a frame. Keeping it is
+/// what makes that cost the rebuilding rather than the re-reading.
+pub struct Relief {
+    heights: Vec<f64>,
+    rows: usize,
+    columns: usize,
+    /// The tallest column in the drawing as written. Measured rather than taken
+    /// from `depth`, which keeps the fit tight when nothing in the drawing
+    /// reaches full ink.
+    tallest: f64,
+}
+
+impl Relief {
+    /// `depth` is how far a cell filled to the brim stands out, in cell widths.
+    pub fn from_field(field: &Field, depth: f64) -> Self {
+        let heights: Vec<f64> = field.levels.iter().map(|level| level * depth).collect();
         let tallest = heights.iter().copied().fold(0.0, f64::max);
-        Self { heights, rows, columns, tallest }
+        Self { heights, rows: field.rows, columns: field.columns, tallest }
+    }
+
+    /// `depth` is how far the heaviest glyph stands out, in cell widths.
+    pub fn from_text(text: &str, depth: f64) -> Self {
+        Self::from_field(&Field::from_text(text, Tones::PLAIN), depth)
     }
 
     /// The drawing as it was written.
@@ -1265,26 +1332,44 @@ impl GlyphGenerator for Turning {
     }
 }
 
-/// What a change to the drawing on disk would move.
+/// What a change to the source on disk would move.
 type Stamp = (u64, Option<SystemTime>);
+
+/// A file as it came off the disk, before anything has been made of it.
+enum Source {
+    Drawing(String),
+    Picture(RgbaImage),
+}
+
+/// Extensions a drawing is written with. Anything else offered to the lift is
+/// decoded as a picture — the window only ever offers these ten, and a decoder
+/// that does not recognise the bytes says so plainly, which a text reader
+/// handed a PNG would not.
+const DRAWINGS: [&str; 3] = ["txt", "asc", "ans"];
 
 struct Cached {
     path: String,
     stamp: Stamp,
-    text: String,
+    source: Arc<Source>,
 }
 
-/// The drawing most recently read.
+/// The file most recently read.
 ///
 /// The window rebuilds this generator from scratch on every preview frame, so
 /// dragging a slider used to re-read the file off disk a dozen times a second
-/// for a drawing that had not changed. One entry is all that is wanted: the
-/// window shows one drawing at a time. Keyed on the file's length and
+/// for a drawing that had not changed — and a picture has to be decoded as well
+/// as read, which is the expensive half. One entry is all that is wanted: the
+/// window shows one source at a time. Keyed on the file's length and
 /// modification time rather than held forever, so editing the drawing in
 /// another window still shows up in the preview.
+///
+/// What is kept is the file rather than the levels taken off it, because the
+/// levels depend on the panel as well as on the disk: contrast and relief move
+/// while the file does not, and re-reading a decoded picture for them is
+/// nothing next to decoding it again.
 static LAST_READ: Mutex<Option<Cached>> = Mutex::new(None);
 
-fn read_drawing(path: &str) -> Result<String, String> {
+fn read_source(path: &str) -> Result<Arc<Source>, String> {
     let stamp: Stamp = std::fs::metadata(path)
         .map(|data| (data.len(), data.modified().ok()))
         .map_err(|error| format!("cannot read `{path}`: {error}"))?;
@@ -1294,33 +1379,57 @@ fn read_drawing(path: &str) -> Result<String, String> {
     let mut cache = LAST_READ.lock().unwrap_or_else(|error| error.into_inner());
     if let Some(cached) = cache.as_ref() {
         if cached.path == path && cached.stamp == stamp {
-            return Ok(cached.text.clone());
+            return Ok(Arc::clone(&cached.source));
         }
     }
 
-    let text = std::fs::read_to_string(path)
-        .map_err(|error| format!("cannot read `{path}`: {error}"))?;
-    *cache = Some(Cached { path: path.to_string(), stamp, text: text.clone() });
-    Ok(text)
+    let drawing = Path::new(path)
+        .extension()
+        .is_some_and(|kind| DRAWINGS.iter().any(|known| kind.eq_ignore_ascii_case(known)));
+    let source = Arc::new(if drawing {
+        Source::Drawing(
+            std::fs::read_to_string(path)
+                .map_err(|error| format!("cannot read `{path}`: {error}"))?,
+        )
+    } else {
+        let picture = ImageReader::open(path)
+            .map_err(|error| format!("cannot read `{path}`: {error}"))?
+            .with_guessed_format()
+            .map_err(|error| format!("cannot read `{path}`: {error}"))?
+            .decode()
+            .map_err(|error| format!("`{path}` is not a picture this can read: {error}"))?;
+        Source::Picture(picture.to_rgba8())
+    });
+
+    *cache = Some(Cached { path: path.to_string(), stamp, source: Arc::clone(&source) });
+    Ok(source)
 }
 
 /// Defaults match the Swift CLI (`asciiary +3d`), not the GUI sliders — the two
 /// disagreed in the original and the CLI is the one this command line inherits.
 pub fn build(params: &Params) -> Result<Generator, String> {
+    // How many cells across a picture is read at, which a drawing has no use
+    // for: a drawing is already a grid and arrives at the size it was written.
+    let across = params.usize("relief", 120)?.clamp(16, 320);
+    let tones = Tones::from_params(params)?;
+
     // `--text` carries a drawing inline, which is how the window offers a sample
     // without shipping a file whose path differs between dev and a bundle.
-    let text = match params.string("text") {
-        Some(inline) => inline.to_string(),
+    let field = match params.string("text") {
+        Some(inline) => Field::from_text(inline, tones),
         None => {
             let path = params
                 .first_positional()
-                .ok_or("ascii needs a .txt drawing to lift")?;
-            read_drawing(path)?
+                .ok_or("ascii needs a drawing or a picture to lift")?;
+            match &*read_source(path)? {
+                Source::Drawing(text) => Field::from_text(text, tones),
+                Source::Picture(image) => Field::from_picture(image, across, tones),
+            }
         }
     };
 
     let depth = params.f64("depth", 8.0)?;
-    let relief = Relief::from_text(&text, depth);
+    let relief = Relief::from_field(&field, depth);
     let movement = Movement::from_params(params)?;
 
     // Any phase would do to build the rig on — the reach is declared, so every
@@ -1351,8 +1460,9 @@ mod tests {
     use crate::art::canvas::SPACE;
     use crate::art::motion::Motion;
 
-    const DIAMOND: &str = "\
-   @@@
+    // Opened on the same line rather than after a `\`, which would eat the
+    // indent of the row below it and hang the tip off the left edge.
+    const DIAMOND: &str = "   @@@
   @###@
  @#+++#@
 @#+...+#@
@@ -1769,6 +1879,13 @@ mod tests {
         }
     }
 
+    fn drawing(path: &str) -> String {
+        match &*read_source(path).expect("the file reads") {
+            Source::Drawing(text) => text.clone(),
+            Source::Picture(_) => panic!("a drawing came back as a picture"),
+        }
+    }
+
     /// The cache is what stops the preview from going back to disk, so the risk
     /// it carries is the opposite one: a drawing edited in another window still
     /// showing its old shape until the app is restarted.
@@ -1778,18 +1895,92 @@ mod tests {
         let path = path.to_str().expect("temp path is utf-8");
 
         std::fs::write(path, "@@@\n").expect("first write");
-        assert_eq!(read_drawing(path).expect("first read"), "@@@\n");
-        assert_eq!(read_drawing(path).expect("cached read"), "@@@\n");
+        assert_eq!(drawing(path), "@@@\n");
+        assert_eq!(drawing(path), "@@@\n");
 
         std::fs::write(path, "...\n..\n").expect("second write");
-        assert_eq!(read_drawing(path).expect("read after edit"), "...\n..\n");
+        assert_eq!(drawing(path), "...\n..\n");
 
         std::fs::remove_file(path).expect("cleanup");
     }
 
     #[test]
     fn a_missing_drawing_says_so() {
-        let error = read_drawing("/nowhere/at/all.txt").expect_err("no such file");
+        let error = read_source("/nowhere/at/all.txt")
+            .err()
+            .expect("no such file");
         assert!(error.contains("cannot read"), "unhelpful message: {error}");
+    }
+
+    /// Light on the left, dark on the right, and a shape that is not square —
+    /// so a lift that mirrored it or laid it out square would have to say so.
+    fn gradient(wide: u32, tall: u32) -> RgbaImage {
+        RgbaImage::from_fn(wide, tall, |x, _| {
+            let level = 255 - (x * 255 / wide.max(1)) as u8;
+            image::Rgba([level, level, level, 255])
+        })
+    }
+
+    /// The whole of what a picture has to do to join the lift: arrive as a level
+    /// a cell, light end heavy, at the shape it was drawn at.
+    #[test]
+    fn a_picture_arrives_as_levels_the_way_a_drawing_does() {
+        let field = Field::from_picture(&gradient(400, 200), 60, Tones::PLAIN);
+        assert_eq!(field.columns, 60);
+        // Half the width in pixels, and cells are `CELL_ASPECT` taller than they
+        // are wide, so a little under a quarter of the columns.
+        assert_eq!(field.rows, (60.0 * 200.0 / (400.0 * CELL_ASPECT)).round() as usize);
+        assert_eq!(field.levels.len(), field.columns * field.rows);
+
+        let row = field.rows / 2;
+        let at = |column: usize| field.levels[row * field.columns + column];
+        assert!(at(1) > 0.9, "the light end lifted only {}", at(1));
+        assert!(at(field.columns - 2) < 0.1, "the dark end lifted {}", at(field.columns - 2));
+    }
+
+    /// Inverting a picture is what makes a drawing on white paper stand up
+    /// rather than the paper around it, and it is the same flag the flat read
+    /// takes.
+    #[test]
+    fn inverting_a_picture_swaps_which_end_of_it_stands_up() {
+        let tones = Tones { inverted: true, contrast: 1.0 };
+        let field = Field::from_picture(&gradient(400, 200), 60, tones);
+        let row = field.rows / 2;
+        let at = |column: usize| field.levels[row * field.columns + column];
+        assert!(at(1) < 0.1, "the light end still lifted {}", at(1));
+        assert!(at(field.columns - 2) > 0.9, "the dark end lifted only {}", at(field.columns - 2));
+    }
+
+    /// The same flag on the other kind of source: the paper stands up and the
+    /// strokes are cut out of it.
+    #[test]
+    fn inverting_a_drawing_stands_the_paper_up() {
+        let tones = Tones { inverted: true, contrast: 1.0 };
+        let field = Field::from_text(DIAMOND, tones);
+        let at = |row: usize, column: usize| field.levels[row * field.columns + column];
+        assert!(at(0, 0) > 0.9, "the paper lifted only {}", at(0, 0));
+        assert!(at(0, 3) < 0.1, "the heaviest ink still lifted {}", at(0, 3));
+    }
+
+    /// And that a picture on disk reaches the renderer, which is the part no
+    /// test of the field alone can answer for.
+    #[test]
+    fn a_picture_on_disk_lifts_into_a_solid() {
+        let path = std::env::temp_dir().join(format!("asciiary-{}.png", std::process::id()));
+        gradient(240, 160).save(&path).expect("the picture writes");
+        let path = path.to_str().expect("temp path is utf-8");
+
+        let mut params = Params { positional: vec![path.to_string()], ..Params::default() };
+        params.flags.insert("relief".into(), Some("48".into()));
+        params.flags.insert("still".into(), None);
+        let Generator::Glyph(generator) = build(&params).expect("the tool builds") else {
+            panic!("the lift drew pixels");
+        };
+
+        let canvas = generator.canvas(90, 30, 0.0);
+        let inked = canvas.glyphs.iter().filter(|&&glyph| glyph != SPACE).count();
+        assert!(inked > 250, "a lifted picture drew only {inked} cells");
+
+        std::fs::remove_file(path).expect("cleanup");
     }
 }

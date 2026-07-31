@@ -64,6 +64,52 @@ impl Marks {
     }
 }
 
+/// How much light a pixel is taken to carry: which end of the picture is the
+/// subject, and how far the rest are pushed apart.
+///
+/// Separate from [`Reader`] because it is asked twice for different reasons. A
+/// tool reading a picture back as marks wants it, and so does the lift, where
+/// the same number is a height rather than a shade — but "which end is the ink"
+/// and "how hard" are the same two questions either way, so `--invert` and
+/// `--contrast` mean one thing across the app rather than one thing each.
+#[derive(Clone, Copy)]
+pub struct Tones {
+    pub inverted: bool,
+    /// How far the tones are pushed apart around the middle. One leaves them
+    /// alone.
+    pub contrast: f32,
+}
+
+impl Tones {
+    /// The source as it stands, which is what one nobody has said anything
+    /// about gets.
+    pub const PLAIN: Self = Self { inverted: false, contrast: 1.0 };
+
+    pub fn from_params(params: &Params) -> Result<Self, String> {
+        Ok(Self {
+            inverted: params.is_set("invert"),
+            contrast: params.f64("contrast", 1.0)?.clamp(0.1, 6.0) as f32,
+        })
+    }
+
+    /// Both adjustments applied to a level that is already a level, which is
+    /// what a drawing hands over — its ink has been counted before anything
+    /// here is asked.
+    pub fn level(self, level: f32) -> f32 {
+        let level = if self.inverted { 1.0 - level } else { level };
+        // Around the middle, so raising it opens the picture up rather than
+        // washing it out.
+        (0.5 + (level - 0.5) * self.contrast).clamp(0.0, 1.0)
+    }
+
+    /// How much light a pixel carries, with those two applied.
+    pub fn light(self, pixel: &[u8; 4]) -> f32 {
+        let [red, green, blue, alpha] = pixel.map(|channel| channel as f32 / 255.0);
+        // What the eye weighs each channel at, which is not what a mean does.
+        self.level(0.2126 * red + 0.7152 * green + 0.0722 * blue) * alpha
+    }
+}
+
 /// The choices a picture is read under.
 ///
 /// Both tools that draw take them from the same four flags, so `--marks`,
@@ -72,10 +118,7 @@ impl Marks {
 pub struct Reader {
     pub marks: Marks,
     pub colored: bool,
-    pub inverted: bool,
-    /// How far the tones are pushed apart around the middle. One leaves them
-    /// alone.
-    pub contrast: f32,
+    pub tones: Tones,
 }
 
 impl Reader {
@@ -83,20 +126,8 @@ impl Reader {
         Ok(Self {
             marks: Marks::named(params.string("marks").unwrap_or("match"))?,
             colored: params.is_set("color"),
-            inverted: params.is_set("invert"),
-            contrast: params.f64("contrast", 1.0)?.clamp(0.1, 6.0) as f32,
+            tones: Tones::from_params(params)?,
         })
-    }
-
-    /// How much light a pixel carries, with the reading's own settings applied.
-    fn light(&self, pixel: &[u8; 4]) -> f32 {
-        let [red, green, blue, alpha] = pixel.map(|channel| channel as f32 / 255.0);
-        // What the eye weighs each channel at, which is not what a mean does.
-        let level = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
-        let level = if self.inverted { 1.0 - level } else { level };
-        // Around the middle, so raising it opens the picture up rather than
-        // washing it out.
-        (0.5 + (level - 0.5) * self.contrast).clamp(0.0, 1.0) * alpha
     }
 
     /// A picture sampled at [`CELL_PIXELS`] a cell, as its own grid.
@@ -122,7 +153,7 @@ impl Reader {
                             (column * CELL_PIXELS_WIDE + x) as u32,
                             (row * CELL_PIXELS_TALL + y) as u32,
                         );
-                        cell[y * CELL_PIXELS_WIDE + x] = self.light(&pixel.0);
+                        cell[y * CELL_PIXELS_WIDE + x] = self.tones.light(&pixel.0);
                         for (channel, held) in tint.iter_mut().enumerate() {
                             *held += pixel.0[channel] as f32 / 255.0;
                         }
@@ -173,8 +204,7 @@ mod tests {
         let reader = Reader {
             marks: Marks::Matched,
             colored: false,
-            inverted: false,
-            contrast: 1.0,
+            tones: Tones::PLAIN,
         };
         let (wide, tall) = fine_size(8, 4);
 
@@ -200,8 +230,7 @@ mod tests {
         let reader = Reader {
             marks: Marks::Matched,
             colored: false,
-            inverted: true,
-            contrast: 1.0,
+            tones: Tones { inverted: true, contrast: 1.0 },
         };
         let (wide, tall) = fine_size(8, 4);
         let paper = RgbaImage::from_pixel(wide, tall, Rgba([255, 255, 255, 255]));

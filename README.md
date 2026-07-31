@@ -6,16 +6,26 @@ as an MP4, a GIF, a PNG or more text.
 | Tool | |
 | --- | --- |
 | `loops` | a finished piece that comes back round to where it began |
-| `ascii` | a `.txt` drawing lifted into a solid, ink for height |
+| `ascii` | a drawing or a picture lifted into a solid, ink for height |
 | `scene` | a sphere, torus, cube or knot cut from a formula and turned |
 | `media` | a picture or an animation quantised to glyphs |
 | `gen2d` | a flow field drawn in pixels and read back as glyphs |
 
 The renderers `ascii` borrows from all start with a mesh somebody modelled. It
-starts with a text file, so it needs one rule they do not: what the third
-dimension of a drawing actually *is*. The rule is ink. A glyph that fills more of
-its cell stands taller — `@` rises, `.` barely lifts, a space is a hole — and the
-result is lit, projected back onto a character grid, and written out.
+starts with a file nobody modelled anything in, so it needs one rule they do not:
+what the third dimension of a flat thing actually *is*. The rule is ink. A glyph
+that fills more of its cell stands taller — `@` rises, `.` barely lifts, a space
+is a hole — and the result is lit, projected back onto a character grid, and
+written out.
+
+A picture is the same rule with the reading swapped: light for ink. It is resized
+to `--relief` cells across, corrected for how much taller a cell is than it is
+wide, and every cell hands over how much light is in it. Past that point nothing
+can tell which kind of file it was given — the heightfield, the lighting, the
+camera and the alphabet are one path, not two. `--invert` decides which end of
+either source is the subject, because a photograph is usually lit and a drawing
+is usually dark on white paper, and `--contrast` opens the middle of the range
+where a flat scan leaves the relief mumbling.
 
 ## What the solid is
 
@@ -230,8 +240,9 @@ And its own on top:
 | | `--count` | discs in `sinusoids`, elements in `spherewave` | `28` `700` |
 | | `--twists` | turns the short way in `toruscurve` | `3` |
 | | `--seed` | which arrangement | `7` |
-| `ascii` | *(first word)* | the `.txt` to lift, or `--text` for one inline | |
+| `ascii` | *(first word)* | the drawing or picture to lift, or `--text` for one inline | |
 | | `--depth` | how far the heaviest glyph stands out, in cell widths | `8` |
+| | `--relief` | cells across a picture is read at; a drawing keeps its own | `120` |
 | `scene` | `--shape` | `sphere`, `torus`, `cube` or `knot` | `torus` |
 | | `--steps` | segments around the form | `64` |
 | | `--thickness` | the tube's reach, against the body's | `0.42` |
@@ -262,6 +273,11 @@ for.
 | `--contrast` | opened about the middle rather than the floor | `1` |
 | `--color` | keep the source's own colour, a cell at a time | off |
 | `--invert` | swap which half of the picture is background | off |
+
+`ascii` takes the last two of those as well, and they mean the same thing there:
+which end of the source is the subject and how hard the rest are pushed apart.
+The lift reads the answer as a height rather than as a shade, which is the only
+difference.
 
 An animated export is rounded to a whole number of loops so it ends where it
 began, which is what lets a GIF loop without a seam. The window shows the count
