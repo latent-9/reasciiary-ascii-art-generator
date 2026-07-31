@@ -301,6 +301,7 @@ function buildTools() {
 }
 
 async function pickTool(tool: Tool) {
+  subject += 1;
   state.tool = tool;
   buildPanel();
   openButton.hidden = tool.source === undefined;
@@ -393,15 +394,37 @@ type Film = { frames: string[]; fps: number };
 let plan: Plan = { period: null, loops: 1, seconds: 4, frame: null };
 let film: Film = { frames: [], fps: 1 };
 let shown = -1;
-let pending = false;
+
+/// The backend call in flight, if there is one.
+///
+/// One at a time: a render is not cheap and the window can ask for one faster than
+/// it can be answered — dragging the camera asks once a pixel. A drag drops the
+/// asks it cannot keep up with, which is what a drag wants. A tool switch waits for
+/// the line to clear instead, because no later ask is coming to make up for it.
+let pending: Promise<unknown> | null = null;
+
+/// Which subject the window is on.
+///
+/// A render is asked for and answered some time later, and the tool can change in
+/// between — so an answer is checked against the count it was asked under and
+/// dropped if that has moved. Without it the frames of the tool just left arrive
+/// into the pane of the one just chosen, over the top of the line saying there is
+/// nothing to draw yet.
+let subject = 0;
+
+const quiet = () => pending?.catch(() => {});
 
 /// Re-asks the backend what an export would do, and reshapes the grid to suit.
 async function refreshPlan() {
+  const mark = subject;
+  let answer: Plan;
   try {
-    plan = await invoke<Plan>("plan", { request: request() });
+    answer = await invoke<Plan>("plan", { request: request() });
   } catch {
-    plan = { period: null, loops: 1, seconds: number("duration"), frame: null };
+    answer = { period: null, loops: 1, seconds: number("duration"), frame: null };
   }
+  if (mark !== subject) return;
+  plan = answer;
   updateHint();
   fitPreview();
 }
@@ -422,6 +445,13 @@ function invalidate() {
 
 async function settle() {
   if (!ready()) return;
+  const mark = subject;
+  // Whatever is in flight belongs to the tool that was on screen a moment ago. Its
+  // answer is going to be thrown away, but the guard holding the backend to one
+  // call at a time would otherwise drop this ask rather than that one — and leave
+  // the pane blank, since there is nothing else coming to fill it.
+  await quiet();
+  if (mark !== subject || !ready()) return;
   await refreshPlan();
   // One frame before the whole loop. A field of six hundred strokes takes long
   // enough to draw a hundred and sixty of them that the pane would otherwise go
@@ -444,21 +474,26 @@ function changed(flag: string) {
 
 async function loadFilm() {
   if (!ready() || pending) return;
-  pending = true;
+  const mark = subject;
   // Long enough on the heavier tools to be worth saying so, and it is the same
   // line an export reports into, so nothing new has to be found room for.
   if (!renderButton.disabled) {
     status.className = "status";
     status.textContent = "drawing…";
   }
+  const call = invoke<Film>("sequence", { request: request() });
+  pending = call;
   try {
-    film = await invoke<Film>("sequence", { request: request() });
+    const frames = await call;
+    if (mark !== subject) return;
+    film = frames;
     shown = -1;
   } catch (error) {
+    if (mark !== subject) return;
     film = { frames: [String(error)], fps: 1 };
     shown = -1;
   } finally {
-    pending = false;
+    pending = null;
     if (status.textContent === "drawing…") status.textContent = "";
   }
 }
@@ -495,15 +530,18 @@ requestAnimationFrame(play);
 /// the next drag event replaces it.
 async function showFrame() {
   if (!ready() || pending) return;
-  pending = true;
+  const mark = subject;
+  const call = invoke<string>("preview", { request: request(), time: 0 });
+  pending = call;
   try {
-    const frame = await invoke<string>("preview", { request: request(), time: 0 });
+    const frame = await call;
+    if (mark !== subject) return;
     film = { frames: [frame], fps: 1 };
     shown = -1;
   } catch (error) {
-    preview.textContent = String(error);
+    if (mark === subject) preview.textContent = String(error);
   } finally {
-    pending = false;
+    pending = null;
   }
 }
 
@@ -614,6 +652,9 @@ openButton.addEventListener("click", async () => {
     filters: [{ name: source.label, extensions: source.extensions }],
   });
   if (typeof picked !== "string") return;
+  // A different file is a different subject, so a render of the last one is of no
+  // more use than a render of the last tool.
+  subject += 1;
   const here = session();
   here.file = picked;
   here.text = null;
