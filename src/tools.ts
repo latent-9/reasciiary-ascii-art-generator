@@ -1,11 +1,11 @@
 /// What each tool takes, in the tool's own terms.
 ///
 /// The window used to be the ascii tool's window: one file to open, one depth
-/// slider, one spin. Four more tools later that shape does not hold — a flow
-/// field has no depth, a picture has no turn, a piece brings its own subject —
-/// and writing each one's controls into the markup by hand would put the same
-/// list in five places and let them drift. So what a tool takes is written down here as data, and the panel is
-/// built from it. Adding the next tool is an entry in this table.
+/// slider, one spin. A second tool later that shape does not hold — a picture
+/// read flat has no depth and no turn — and writing each one's controls into
+/// the markup by hand would put the same list in two places and let them drift.
+/// So what a tool takes is written down here as data, and the panel is built
+/// from it. Adding the next tool is an entry in this table.
 ///
 /// Every `flag` is the name the backend already reads, so nothing translates
 /// between here and `Params`; a control is a flag with a range around it.
@@ -122,85 +122,31 @@ const MOVEMENT: Control[] = [
   { kind: "range", flag: "amount", label: "Strength", min: 0, max: 1, step: 0.05, value: 0.35 },
 ];
 
-/// The window opens on whichever tool is first, so the first is the one that
-/// has something to show without being given anything: the pieces bring their
-/// own subject, and every other tool here waits for a file or a formula.
+/// The window is the lift's window, and the flat read is here because it is the
+/// same question asked without the third dimension — open the picture, see what
+/// the glyphs make of it, then lift it.
+///
+/// The tools that brought their own subject are not in this list. A formula
+/// turning on its own is a fine thing to watch and a poor thing to open an app
+/// on: nothing on screen was asked for, and the one tool somebody came here to
+/// use was three tabs along. They are still in the registry behind the command
+/// line, where a piece is asked for by name.
 export const TOOLS: Tool[] = [
   {
-    name: "loops",
-    label: "Loop",
-    blurb: "A finished piece that comes back round to where it began.",
-    groups: [
-      {
-        title: "Piece",
-        controls: [
-          {
-            kind: "choice",
-            flag: "piece",
-            label: "Piece",
-            value: "hilbert",
-            options: [
-              "hilbert",
-              "sinusoids",
-              "sierpinski",
-              "sliding",
-              "spherewave",
-              "toruscurve",
-            ],
-          },
-        ],
-      },
-      {
-        title: "Motion",
-        controls: [
-          { kind: "range", flag: "period", label: "Loop", min: 1, max: 20, step: 1, value: 6 },
-          { kind: "range", flag: "seed", label: "Seed", min: 0, max: 99, step: 1, value: 7 },
-          STILL,
-        ],
-      },
-      READING,
-    ],
-  },
-  {
     name: "ascii",
-    label: "Drawing",
-    blurb: "A .txt drawing lifted into a solid, ink for height.",
-    source: { label: "ASCII drawing", extensions: ["txt", "asc", "ans"], sample: DIAMOND },
+    label: "3D",
+    blurb: "A drawing or a picture lifted into a solid, ink for height.",
+    source: {
+      label: "drawing or picture",
+      extensions: ["txt", "asc", "ans", "png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff"],
+      sample: DIAMOND,
+    },
     camera: { yaw: 34, pitch: 29, zoom: 0.92 },
     groups: [
       {
         title: "Solid",
-        controls: [{ kind: "range", flag: "depth", label: "Depth", min: 1, max: 40, step: 1, value: 8 }],
-      },
-      { title: "Motion", controls: [TURNS, ...MOVEMENT, STILL] },
-    ],
-  },
-  {
-    name: "scene",
-    label: "Solid",
-    blurb: "A primitive cut from a formula and turned.",
-    camera: { yaw: 0, pitch: 26, zoom: 0.92 },
-    groups: [
-      {
-        title: "Shape",
         controls: [
-          {
-            kind: "choice",
-            flag: "shape",
-            label: "Form",
-            value: "torus",
-            options: ["sphere", "torus", "cube", "knot"],
-          },
-          { kind: "range", flag: "steps", label: "Steps", min: 8, max: 160, step: 8, value: 64 },
-          {
-            kind: "range",
-            flag: "thickness",
-            label: "Thickness",
-            min: 0.05,
-            max: 1,
-            step: 0.01,
-            value: 0.42,
-          },
+          { kind: "range", flag: "depth", label: "Depth", min: 1, max: 40, step: 1, value: 8 },
         ],
       },
       { title: "Motion", controls: [TURNS, ...MOVEMENT, STILL] },
@@ -208,10 +154,10 @@ export const TOOLS: Tool[] = [
   },
   {
     name: "media",
-    label: "Picture",
-    blurb: "A picture or an animation quantised to glyphs.",
+    label: "Flat",
+    blurb: "The same picture read straight back as glyphs, with no lift.",
     source: {
-      label: "Picture",
+      label: "picture",
       extensions: ["png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff"],
     },
     groups: [
@@ -225,32 +171,6 @@ export const TOOLS: Tool[] = [
             value: "contain",
             options: ["contain", "cover"],
           },
-        ],
-      },
-      READING,
-    ],
-  },
-  {
-    name: "gen2d",
-    label: "Field",
-    blurb: "A flow field drawn in pixels and read back as glyphs.",
-    groups: [
-      {
-        title: "Field",
-        controls: [
-          { kind: "choice", flag: "style", label: "Style", value: "flow", options: ["flow", "noise"] },
-          { kind: "range", flag: "lines", label: "Lines", min: 64, max: 2000, step: 32, value: 640 },
-          { kind: "range", flag: "steps", label: "Length", min: 16, max: 400, step: 8, value: 120 },
-          { kind: "range", flag: "grain", label: "Grain", min: 0.1, max: 6, step: 0.1, value: 1.3 },
-          { kind: "range", flag: "swirl", label: "Swirl", min: 0.05, max: 4, step: 0.05, value: 1 },
-          { kind: "range", flag: "seed", label: "Seed", min: 0, max: 99, step: 1, value: 7 },
-        ],
-      },
-      {
-        title: "Motion",
-        controls: [
-          { kind: "range", flag: "period", label: "Loop", min: 1, max: 20, step: 1, value: 8 },
-          STILL,
         ],
       },
       READING,

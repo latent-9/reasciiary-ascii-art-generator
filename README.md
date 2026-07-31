@@ -162,11 +162,15 @@ bun run tauri dev
 ```
 
 The toolbar picks the tool; the panel beside the preview is that tool's own
-options and nothing else, with what the export writes at the foot of it. The
-window opens on `loops`, which brings its own subject, so there is a piece
-running before anything has been chosen. A tool that needs a file says so in the
-toolbar — `ascii` opens on a drawing that ships with the window, so that one has
-something to turn too.
+options and nothing else, with what the export writes at the foot of it. Two of
+the five are in it: the lift, and the flat read of the same picture. The three
+that bring their own subject are not, because a formula turning on its own is a
+poor thing to open an app on — nothing on screen was asked for, and the tool
+somebody came here to use was three tabs along. They are still in the registry,
+and the command line asks for them by name.
+
+The window opens on the lift, on a drawing that ships with it, so there is
+something to turn before anything has been opened.
 
 Drag the preview to turn a solid, scroll to zoom, double-click to face it again.
 Each tool keeps its own angle, so turning the torus and then coming back to the
