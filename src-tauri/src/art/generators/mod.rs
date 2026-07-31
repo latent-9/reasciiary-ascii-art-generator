@@ -11,7 +11,7 @@
 //! - `gen2d`  — flow fields and noise, drawn with `tiny-skia`. New.
 
 pub mod ascii;
+pub mod media;
 pub mod scene;
 pub mod wave;
-// pub mod media;
 // pub mod gen2d;
