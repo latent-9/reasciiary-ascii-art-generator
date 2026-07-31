@@ -9,7 +9,7 @@
 //! — and the same code draws a preview and a poster.
 
 use image::RgbaImage;
-use tiny_skia::{Color, LineCap, Paint, PathBuilder, Pixmap, Stroke, Transform};
+use tiny_skia::{Color, FillRule, LineCap, Paint, PathBuilder, Pixmap, Stroke, Transform};
 
 /// Thinner than this and anti-aliasing spends the whole stroke on coverage: the
 /// line survives as a grey that comes and goes between frames, which reads as
@@ -80,6 +80,40 @@ impl Paper {
             .stroke_path(&path, &paint, &stroke, Transform::identity(), None);
     }
 
+    /// The area a run of points encloses, closed and filled.
+    ///
+    /// A tool that wants a shape read rather than an edge traced needs this
+    /// rather than a heavy stroke: the reader matches a cell by the patch of
+    /// light in it, so an area comes back as a solid glyph and an outline comes
+    /// back as a rule. Three outlines inside one another are a ruled grid; three
+    /// areas inside one another are three tones.
+    pub fn fill(&mut self, points: &[(f64, f64)], tint: [f32; 3], alpha: f64) {
+        if points.len() < 3 || alpha <= 0.0 {
+            return;
+        }
+        let mut path = PathBuilder::new();
+        for (step, point) in points.iter().enumerate() {
+            let (x, y) = self.onto(*point);
+            if step == 0 {
+                path.move_to(x, y);
+            } else {
+                path.line_to(x, y);
+            }
+        }
+        path.close();
+        let Some(path) = path.finish() else {
+            return;
+        };
+
+        let mut paint = Paint { anti_alias: true, ..Paint::default() };
+        paint.set_color(
+            Color::from_rgba(tint[0], tint[1], tint[2], alpha.clamp(0.0, 1.0) as f32)
+                .unwrap_or(Color::WHITE),
+        );
+        self.pixmap
+            .fill_path(&path, &paint, FillRule::Winding, Transform::identity(), None);
+    }
+
     /// What the reader reads.
     pub fn picture(&self) -> Option<RgbaImage> {
         RgbaImage::from_raw(
@@ -132,6 +166,22 @@ mod tests {
         let mut clear = Paper::new(120, 40).expect("a sheet");
         clear.stroke(&[(-0.5, 0.0), (0.5, 0.0)], 0.05, [1.0; 3], 0.0);
         assert_eq!(lit(&clear), 0);
+    }
+
+    /// A fill covers its area rather than tracing it, which is the whole reason
+    /// it is here: the same square as an outline leaves the middle dark.
+    #[test]
+    fn a_fill_covers_the_inside_and_a_stroke_does_not() {
+        let middle = |paper: &Paper| paper.picture().expect("a picture").get_pixel(60, 20).0[0];
+        let square = [(-0.2, -0.2), (0.2, -0.2), (0.2, 0.2), (-0.2, 0.2)];
+
+        let mut filled = Paper::new(120, 40).expect("a sheet");
+        filled.fill(&square, [1.0; 3], 1.0);
+        assert_eq!(middle(&filled), 255);
+
+        let mut traced = Paper::new(120, 40).expect("a sheet");
+        traced.stroke(&square, 0.02, [1.0; 3], 1.0);
+        assert_eq!(middle(&traced), 0);
     }
 
     /// The hue is a loop: a whole turn of it is where it started.

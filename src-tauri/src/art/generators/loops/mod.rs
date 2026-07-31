@@ -22,6 +22,7 @@
 mod hilbert;
 mod sierpinski;
 mod sinusoids;
+mod sliding;
 
 use crate::art::canvas::{AsciiCanvas, CELL_ASPECT};
 use crate::art::generator::{Generator, GlyphGenerator};
@@ -35,7 +36,7 @@ use super::paper::Paper;
 /// One list, read by the error message and walked by the tests, so a piece that
 /// is not on it is neither offered to anyone who mistypes nor answerable for
 /// its loop.
-const PIECES: [&str; 3] = ["hilbert", "sinusoids", "sierpinski"];
+const PIECES: [&str; 4] = ["hilbert", "sinusoids", "sierpinski", "sliding"];
 
 /// What the tool can draw, and everything that piece settled before it drew a
 /// frame.
@@ -54,6 +55,8 @@ enum Piece {
     Sinusoids { discs: Vec<sinusoids::Disc> },
     /// A gasket whose three copies slide round its corners.
     Sierpinski { depth: u32, seed: u64 },
+    /// A quadtree whose quarters slide while the whole of it doubles.
+    Sliding { depth: u32 },
 }
 
 impl Piece {
@@ -70,6 +73,9 @@ impl Piece {
                 depth: sierpinski::depth(params.usize("depth", 4)?),
                 seed,
             }),
+            "sliding" => Ok(Self::Sliding {
+                depth: sliding::depth(params.usize("depth", 4)?),
+            }),
             other => Err(format!(
                 "`{other}` is not a piece — try one of {}",
                 PIECES.join(", ")
@@ -84,6 +90,7 @@ impl Piece {
             Self::Sierpinski { depth, seed } => {
                 sierpinski::draw(paper, *depth, phase, *seed, colored)
             }
+            Self::Sliding { depth } => sliding::draw(paper, *depth, phase, colored),
         }
     }
 
@@ -183,15 +190,42 @@ mod tests {
         }
     }
 
-    /// The point of the tool: a period later the frame is the frame it started
-    /// as, so an export meets itself.
+    /// The point of the tool: the last frame of an export meets the first, so
+    /// the clip can be played round and round without a cut in it.
+    ///
+    /// Reading the frame at the period and comparing it with the frame at
+    /// nought proves nothing — a phase is the time over the period, and those
+    /// are the same phase. What has to be true is that the step across the seam
+    /// is a step like the others: a piece that jumps there passes the round
+    /// trip and still shows a cut. One did, and drawing it was the only way to
+    /// find out.
     #[test]
-    fn a_period_brings_every_piece_back_to_itself() {
+    fn the_last_frame_of_every_piece_meets_the_first() {
+        const STEPS: usize = 16;
+        let apart = |one: &AsciiCanvas, other: &AsciiCanvas| {
+            one.glyphs.iter().zip(&other.glyphs).filter(|(one, other)| one != other).count()
+        };
+
         for name in PIECES {
             let drawn = drawn(piece(name, 7));
-            let start = drawn.canvas(64, 30, 0.0);
-            let round = drawn.canvas(64, 30, drawn.period);
-            assert_eq!(start.glyphs, round.glyphs, "{name} does not close its loop");
+            let frames: Vec<AsciiCanvas> = (0..STEPS)
+                .map(|step| {
+                    drawn.canvas(48, 22, drawn.period * step as f64 / STEPS as f64)
+                })
+                .collect();
+
+            assert_eq!(
+                frames[0].glyphs,
+                drawn.canvas(48, 22, drawn.period).glyphs,
+                "{name} does not come back round"
+            );
+            let inside = (1..STEPS).map(|step| apart(&frames[step - 1], &frames[step]));
+            let widest = inside.max().expect("a loop of more than one frame");
+            let seam = apart(&frames[STEPS - 1], &frames[0]);
+            assert!(
+                seam <= widest,
+                "{name} moves {seam} cells across the seam and at most {widest} anywhere inside"
+            );
         }
     }
 
@@ -214,6 +248,11 @@ mod tests {
 
     /// A seed is a promise that the same line can be typed twice, and that
     /// another one is worth typing.
+    ///
+    /// Not every piece has room for one — a zoom that is exactly self-similar
+    /// is the same figure however it is asked for — so a piece is held to what
+    /// it took rather than to a list kept by hand: one that read the seed has
+    /// to draw differently, and one that did not has to draw the same.
     #[test]
     fn the_same_seed_draws_the_same_frame() {
         for name in PIECES {
@@ -222,7 +261,11 @@ mod tests {
             assert_eq!(one.glyphs, same.glyphs, "{name} is not repeatable");
 
             let other = drawn(piece(name, 8)).canvas(64, 30, 1.5);
-            assert_ne!(one.glyphs, other.glyphs, "{name} ignores its seed");
+            if piece(name, 7) == piece(name, 8) {
+                assert_eq!(one.glyphs, other.glyphs, "{name} took a seed it has not got");
+            } else {
+                assert_ne!(one.glyphs, other.glyphs, "{name} ignores its seed");
+            }
         }
     }
 
