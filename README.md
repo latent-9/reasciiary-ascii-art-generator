@@ -9,21 +9,55 @@ its cell stands taller — `@` rises, `.` barely lifts, a space is a hole — an
 result is lit, projected back onto a character grid, and written out as an MP4,
 a GIF, a PNG or more text.
 
+## What the solid is
+
+Ink coverage gives every cell a height, and the drawing is struck *through* the
+slab rather than raised off a backing plate: a column of ink `h` tall runs from
+`-h/2` to `+h/2`. A plate is one flat quad with one normal spanning the whole
+drawing — head-on it hides behind the ink and costs nothing, but turned past a
+quarter it *is* the picture, so half of every spin arrived as a featureless mass
+however carefully the front had been lit. Struck through, there is no angle with
+nothing to show, at the price of the drawing being open work: every space in it
+is a hole clean through.
+
 ## Where the shade comes from
 
-Ink coverage gives every cell a height, and the light has to be able to tell one
-cell from the next or the whole thing renders as a slab. A box's top is flat, so
-reading its normal off the box says nothing — every cap in the model takes
-exactly the same light and the relief only survives as a step at the silhouette.
-The normal is taken from the drawing instead: the gradient of the heightfield
-under that cell, so a cap leans back against the ink rising beside it and catches
-the key light the way the slope it stands on would.
+The light has to be able to tell one cell from the next or the whole thing
+renders as a slab. A box's top is flat, so reading its normal off the box says
+nothing — every cap in the model takes exactly the same light and the relief only
+survives as a step at the silhouette. The normal is taken from the drawing
+instead: the gradient of the heightfield under that cell, so a cap leans back
+against the ink rising beside it and catches the key light the way the slope it
+stands on would.
 
 That gradient is a Sobel rather than a difference of the two neighbours either
 side. ASCII art dithers — `#@#@` is a tone, not a staircase — and a stencil one
 cell wide reads a cliff at every cell, which breaks the surface into noise.
 Asking the same question of a three by three patch cancels the alternation, the
-way the eye does with it.
+way the eye does with it. A wall gets the same treatment from the other end: its
+normal is rolled a third of the way off the face it descends from, because a rim
+on a cut relief turns over into its own side rather than meeting it at a knife
+edge, and a bare axis is one normal shared by every wall in the drawing that runs
+the same way.
+
+Which way a surface faces is the whole of direct lighting, and it cannot tell the
+floor of a pit from the same floor out in the open: both look at the sky, both
+take the same shade, both come out the same character. So the heightfield is
+asked a second question. A neighbour standing `rise` above a cell `run` away
+walls off everything below `rise / run`, and the steepest such ratio along each
+of eight directions says how much sky the cell has left. That belongs to the
+drawing rather than to the angle it is seen from, which is the point — it is
+still there at the yaws where the direct light has nothing left to separate.
+
+## The camera
+
+The eye stands off by a multiple of the solid's own reach. Under a parallel
+camera a face keeps its size however far away it is, so the two ends of a turning
+slab are drawn identically and nothing in the picture says which one is nearer —
+a spin reads as a shape shearing about on the page rather than as a body turning
+in space. The frame is fitted by carrying the bounding box's own corners through
+that same projection and sweeping them over a whole turn, so the model is drawn
+as large as it can be without breathing as it spins.
 
 ## Choosing a character
 
@@ -34,8 +68,20 @@ better than one value a cell, so an edge comes out as a staircase.
 than the grid and gives each cell the character whose own bitmap looks most like
 that patch. This follows the second: `/` wins a cell because the ink in `/` lies
 where the light in that cell lies, which is where the sloped edges and the traced
-silhouettes come from. The ramp is still there for cells with nothing to match —
-flat ones — and it is measured from the same bitmaps rather than assumed.
+silhouettes come from.
+
+Which of the two a cell gets is decided by coverage, not by anything in the
+shading: the rasteriser already knows how many of its samples the solid reached,
+so a cell it fills completely is interior and gets graded, and a cell it fills
+partly is on the silhouette and gets matched.
+
+The ramp is `.:-=+*#%@`, measured from the same bitmaps rather than assumed. A
+longer one is only better if every step looks like the ones either side — `*`,
+`+`, `?`, `!` and `|` carry nearly the same ink and look nothing alike, so a face
+graded through them changes texture where it should only change tone, and reads
+as noise. The silhouette is matched against strokes for the same reason: a `W` or
+a `J` may fit an edge best by least squares, but what the eye does with a row of
+letters is read it.
 
 ## Running it
 
