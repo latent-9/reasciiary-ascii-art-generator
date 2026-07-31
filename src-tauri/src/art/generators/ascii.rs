@@ -92,6 +92,10 @@ struct Face {
     normal: Vector3,
 }
 
+/// Yaws the fit is measured at. Fine enough that no corner slips between two of
+/// them by more than the rounding a character cell already imposes.
+const TURN_STEPS: usize = 180;
+
 /// The shape the frame is fitted to.
 ///
 /// A drawing is a wide, shallow slab: the ball around it has to reach its far
@@ -112,6 +116,54 @@ impl Bound {
                 let vertical =
                     pitch.cos().abs() * half_height + pitch.sin().abs() * horizontal;
                 (horizontal.max(0.001), vertical.max(0.001))
+            }
+        }
+    }
+
+    /// The furthest in front of its middle the solid ever reaches over a turn —
+    /// [`Self::depth_extent`] at its worst yaw, which is the same trade tipping
+    /// makes in [`Self::extents`] with the two terms swapped.
+    fn depth_reach(&self, pitch: f64) -> f64 {
+        match *self {
+            Self::Slab { half_width, half_height, half_depth } => {
+                let swept = (half_width * half_width + half_depth * half_depth).sqrt();
+                pitch.sin().abs() * half_height + pitch.cos().abs() * swept
+            }
+        }
+    }
+
+    /// Half the width and half the height the solid covers on screen at unit
+    /// scale, seen from `eye` away, swept over a whole turn so the fit holds
+    /// still rather than breathing as the solid spins.
+    ///
+    /// The corners go through the same projection the faces do, which starts to
+    /// matter once the camera converges: a near corner is drawn larger than the
+    /// box it came from says. Allowing for that the cheap way — taking the
+    /// parallel extents and scaling them by the most any point can possibly
+    /// gain — hands a fifth of the frame to a margin nothing reaches into, and
+    /// on a grid this coarse a fifth of the frame is a lot of detail to lose.
+    fn screen_extents(&self, pitch: f64, eye: f64) -> (f64, f64) {
+        match *self {
+            Self::Slab { half_width, half_height, half_depth } => {
+                let mut horizontal: f64 = 0.001;
+                let mut vertical: f64 = 0.001;
+                for step in 0..TURN_STEPS {
+                    let rotation = Rotation::new(
+                        TAU * step as f64 / TURN_STEPS as f64,
+                        pitch,
+                    );
+                    for x in [-half_width, half_width] {
+                        for y in [-half_height, half_height] {
+                            for z in [-half_depth, half_depth] {
+                                let spun = rotation.apply(Vector3::new(x, y, z));
+                                let converge = eye / (eye - spun.z);
+                                horizontal = horizontal.max((spun.x * converge).abs());
+                                vertical = vertical.max((spun.y * converge).abs());
+                            }
+                        }
+                    }
+                }
+                (horizontal, vertical)
             }
         }
     }
@@ -326,13 +378,29 @@ fn bevelled(axis: Vector3, face: Vector3) -> Vector3 {
     .normalized()
 }
 
+/// How far the eye stands from the middle of the solid, counted in whichever way
+/// the solid reaches furthest.
+///
+/// A parallel camera — no distance at all — is what this had, and under one a
+/// face keeps its size however far off it is. The two ends of a turning slab are
+/// then drawn identically, so nothing in the picture says which end is nearer:
+/// a spin reads as a shape shearing about on the page rather than as a body
+/// turning in space, and every bit of the depth has to be inferred from the
+/// shading alone. Convergence is the one cue that does not have to be inferred.
+///
+/// Far enough that the drawing is not bent into a fisheye, near enough that the
+/// far end visibly gives way.
+const EYE_REACH: f64 = 3.6;
+
 /// One directional light, resolved so the per-face work is two dot products.
 #[derive(Clone, Copy)]
 struct Light {
     direction: Vector3,
-    /// Halfway between the light and the eye. The camera is orthographic and
-    /// looks straight down the z axis, so this never changes and the Blinn
-    /// highlight costs no more than the diffuse term does.
+    /// Halfway between the light and the eye, with the eye taken as looking
+    /// straight down the z axis from infinitely far. The camera converges, so
+    /// that is an approximation — but over a lens this long it is worth a degree
+    /// or two of highlight placement, and it is what lets the Blinn term be
+    /// resolved once here instead of per sample.
     halfway: Vector3,
     strength: f64,
 }
@@ -450,10 +518,26 @@ impl Renderer {
     /// a drag. The horizontal extent already covers a whole turn, so this holds
     /// steady through a spin — which is the part that has to.
     pub fn frame_aspect(&self) -> f64 {
-        let (horizontal, vertical) = self.solid.bound.extents(0.0);
+        let (_, horizontal, vertical) = self.camera(0.0);
         // A cell is `CELL_ASPECT` times taller than it is wide, so a world box
         // that square needs that many fewer rows than columns to hold it.
         horizontal * CELL_ASPECT / vertical
+    }
+
+    /// The camera the frame is fitted to at this pitch: how far off the eye
+    /// stands, and half the width and height the solid covers from there.
+    ///
+    /// The standoff is counted off the solid's own reach, so a big drawing and
+    /// a small one are seen through the same lens rather than the small one
+    /// being held up against the glass. Reaching along the view axis counts too,
+    /// and has to: a tall drawing turned on its side puts its length in front of
+    /// the eye, and a standoff blind to that would set the eye down inside it.
+    fn camera(&self, pitch: f64) -> (f64, f64, f64) {
+        let (horizontal, vertical) = self.solid.bound.extents(pitch);
+        let eye =
+            EYE_REACH * horizontal.max(vertical).max(self.solid.bound.depth_reach(pitch));
+        let (horizontal, vertical) = self.solid.bound.screen_extents(pitch, eye);
+        (eye, horizontal, vertical)
     }
 
     /// `yaw` is passed rather than read from the field so one prepared renderer
@@ -470,7 +554,8 @@ impl Renderer {
         let mut surface = Surface::new(columns, rows);
 
         let rotation = Rotation::new(yaw, self.pitch);
-        let (horizontal, vertical) = self.solid.bound.extents(self.pitch);
+        let (eye, horizontal, vertical) = self.camera(self.pitch);
+
         // A cell is CELL_PIXELS_TALL / CELL_PIXELS_WIDE = CELL_ASPECT times
         // taller than it is wide, which is exactly how much taller than wide the
         // world models it. So the sample grid is square in world terms and one
@@ -483,7 +568,10 @@ impl Renderer {
 
         let project = |point: Vector3| -> Vector3 {
             let spun = rotation.apply(point);
-            Vector3::new(center_x + spun.x * scale, center_y - spun.y * scale, spun.z)
+            // What is near is drawn large. `eye` is far enough past the solid's
+            // own reach that the divisor cannot approach zero.
+            let converge = scale * eye / (eye - spun.z);
+            Vector3::new(center_x + spun.x * converge, center_y - spun.y * converge, spun.z)
         };
 
         let depth_extent = self.solid.bound.depth_extent(yaw, self.pitch);
@@ -842,6 +930,15 @@ mod tests {
   @###@
    @@@   ";
 
+    /// Full ink everywhere, so the solid it lifts to is a plain box and its
+    /// silhouette is the camera's doing rather than the drawing's.
+    const BLOCK: &str = "\
+@@@@@@@@@
+@@@@@@@@@
+@@@@@@@@@
+@@@@@@@@@
+@@@@@@@@@";
+
     /// The window's defaults, so a test measures what somebody actually sees.
     fn render(text: &str, yaw_degrees: f64, columns: usize, rows: usize) -> AsciiCanvas {
         let mut renderer = Renderer::new(Solid::from_text(text, 8.0));
@@ -908,6 +1005,40 @@ mod tests {
                  columns {left}..{right} of {columns}, rows {top}..{bottom} of {rows}"
             );
         }
+    }
+
+    /// A parallel camera draws the far end of a turning solid exactly as large
+    /// as the near end, so nothing in the picture says which end is which and a
+    /// spin reads as a shape shearing about on the page. Turn a solid block and
+    /// the vertical edge nearest the eye should stand taller than the two that
+    /// bound the silhouette — a box drawn as a trapezoid rather than a rectangle.
+    #[test]
+    fn a_turned_block_is_drawn_as_a_trapezoid() {
+        let mut renderer = Renderer::new(Solid::from_text(BLOCK, 8.0));
+        renderer.zoom = 0.92;
+        let canvas = renderer.canvas_at(80, 24, 40_f64.to_radians());
+
+        let columns: Vec<usize> = (0..canvas.columns)
+            .map(|column| {
+                (0..canvas.rows).filter(|&row| canvas.get(column, row) != SPACE).count()
+            })
+            .filter(|inked| *inked > 0)
+            .collect();
+        let (near, _) = columns
+            .iter()
+            .enumerate()
+            .max_by_key(|(_, inked)| **inked)
+            .expect("the block draws something");
+
+        assert!(
+            columns[near] > columns[0] && columns[near] > columns[columns.len() - 1],
+            "the near edge should overtop both far ones: {columns:?}"
+        );
+        assert!(
+            near > 0 && near < columns.len() - 1,
+            "and it stands inside the silhouette, not on it: column {near} of {}",
+            columns.len()
+        );
     }
 
     /// Blank lines at the end of a file are how it was saved, not part of the
