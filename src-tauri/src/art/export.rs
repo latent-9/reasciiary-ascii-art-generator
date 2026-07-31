@@ -250,14 +250,25 @@ pub fn mp4_args(width: u32, height: u32, fps: u32, out: &str) -> Vec<String> {
 ///
 /// This has to be a single pass over a split graph: per-frame palettegen emits
 /// one palette *per frame*, so there is no single palette file to hand to a
-/// second invocation.
+/// second invocation. That per-frame emission is also what keeps the memory
+/// flat. One palette for the whole animation would be smaller and no less
+/// accurate here, but palettegen cannot choose it until it has seen every frame,
+/// so every frame queues up behind it waiting to be mapped — three times the
+/// peak memory over a four second export, and it grows with the length.
+///
+/// Nothing is dithered. Dithering exists to fake a colour the palette does not
+/// hold, and this palette holds every colour there is: the picture is ink on
+/// paper, so all of it lies on the one line between those two, with room to
+/// spare in 256 entries. Error diffusion was spreading an error of zero across
+/// four megapixels a frame, which was two thirds of the time it took to write a
+/// GIF and changed not a pixel of the result.
 ///
 /// `-loop 0` means forever, which is what a posted loop wants.
 pub fn gif_args(width: u32, height: u32, fps: u32, out: &str) -> Vec<String> {
     let mut args = raw_input(width, height, fps);
     args.extend([
         "-lavfi".into(),
-        "split[a][b];[a]palettegen=stats_mode=single[p];[b][p]paletteuse=new=1".into(),
+        "split[a][b];[a]palettegen=stats_mode=single[p];[b][p]paletteuse=new=1:dither=none".into(),
         "-loop".into(), "0".into(),
         out.into(),
     ]);
