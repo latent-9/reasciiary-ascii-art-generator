@@ -12,6 +12,8 @@
 //! are. That is the difference between a picture read back as glyphs and one
 //! averaged into a ramp, and at this size it is not a small one.
 
+use std::path::Path;
+
 use image::RgbaImage;
 
 use super::canvas::{AsciiCanvas, AsciiColor, AsciiRamp};
@@ -189,6 +191,23 @@ pub fn fine_size(columns: usize, rows: usize) -> (u32, u32) {
         (columns * CELL_PIXELS_WIDE) as u32,
         (rows * CELL_PIXELS_TALL) as u32,
     )
+}
+
+/// Extensions a drawing is written with.
+///
+/// Anything else offered to a tool that reads a file is decoded as a picture. A
+/// decoder handed bytes it does not recognise says so plainly, which a text
+/// reader handed a PNG would not — it would read it as a page of mojibake and
+/// draw a wall of `@`.
+const DRAWINGS: [&str; 3] = ["txt", "asc", "ans"];
+
+/// Whether a path names a drawing rather than a picture. Both tools that read a
+/// file ask it, and they have to agree: the same file opened in either one is
+/// the same subject.
+pub fn is_drawing(path: &str) -> bool {
+    Path::new(path)
+        .extension()
+        .is_some_and(|kind| DRAWINGS.iter().any(|known| kind.eq_ignore_ascii_case(known)))
 }
 
 #[cfg(test)]

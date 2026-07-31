@@ -14,7 +14,6 @@
 //! everything past that point cannot tell which one it was handed.
 
 use std::f64::consts::TAU;
-use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
@@ -27,7 +26,7 @@ use crate::art::generator::{Generator, GlyphGenerator};
 use crate::art::glyphs::{ALPHABET, CELL_PIXELS, CELL_PIXELS_TALL, CELL_PIXELS_WIDE};
 use crate::art::motion::Movement;
 use crate::art::params::Params;
-use crate::art::read::Tones;
+use crate::art::read::{is_drawing, Tones};
 
 #[derive(Clone, Copy, Debug)]
 pub struct Vector3 {
@@ -1335,12 +1334,6 @@ enum Source {
     Picture(RgbaImage),
 }
 
-/// Extensions a drawing is written with. Anything else offered to the lift is
-/// decoded as a picture — the window only ever offers these ten, and a decoder
-/// that does not recognise the bytes says so plainly, which a text reader
-/// handed a PNG would not.
-const DRAWINGS: [&str; 3] = ["txt", "asc", "ans"];
-
 struct Cached {
     path: String,
     stamp: Stamp,
@@ -1377,10 +1370,7 @@ fn read_source(path: &str) -> Result<Arc<Source>, String> {
         }
     }
 
-    let drawing = Path::new(path)
-        .extension()
-        .is_some_and(|kind| DRAWINGS.iter().any(|known| kind.eq_ignore_ascii_case(known)));
-    let source = Arc::new(if drawing {
+    let source = Arc::new(if is_drawing(path) {
         Source::Drawing(
             std::fs::read_to_string(path)
                 .map_err(|error| format!("cannot read `{path}`: {error}"))?,
