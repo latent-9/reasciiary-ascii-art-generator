@@ -310,34 +310,13 @@ impl Field {
     /// `tones` reads the same way it does for a picture: inverted, the paper
     /// stands up and the strokes are cut out of it.
     pub fn from_text(text: &str, tones: Tones) -> Self {
-        let normalized = text.replace("\r\n", "\n").replace('\t', "    ");
-        let mut lines: Vec<Vec<char>> =
-            normalized.split('\n').map(|line| line.chars().collect()).collect();
-
-        // Trailing blank lines are an artifact of how the file was saved, not
-        // part of the drawing, and would otherwise offset it in the frame.
-        while lines
-            .last()
-            .is_some_and(|line| line.iter().all(|c| c.is_whitespace()))
-        {
-            lines.pop();
-        }
-
-        let rows = lines.len();
-        let columns = lines.iter().map(Vec::len).max().unwrap_or(0);
-
-        // Blank rather than nothing: a cell past the end of a short line is
-        // paper the same way a space is, and inverted the two have to stand up
-        // together or the drawing comes back with a ragged right edge.
-        let mut levels = vec![tones.level(0.0) as f64; rows * columns];
-        for (row, line) in lines.iter().enumerate() {
-            for (column, character) in line.iter().enumerate() {
-                levels[row * columns + column] =
-                    tones.level(ink_coverage(*character) as f32) as f64;
-            }
-        }
-
-        Self { levels, rows, columns }
+        let drawing = AsciiCanvas::from_text(text);
+        let levels = drawing
+            .glyphs
+            .iter()
+            .map(|&glyph| tones.level(ink_coverage(glyph as char) as f32) as f64)
+            .collect();
+        Self { levels, rows: drawing.rows, columns: drawing.columns }
     }
 
     /// A picture read down to `across` cells, a level each.

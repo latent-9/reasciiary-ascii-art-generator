@@ -119,6 +119,56 @@ impl AsciiCanvas {
         }
         String::from_utf8_lossy(&buffer).into_owned()
     }
+
+    /// A drawing somebody wrote, on the grid it was written at.
+    ///
+    /// The inverse of [`AsciiCanvas::text`], and the one place a file of
+    /// characters becomes a grid of them. Two tools want it for opposite
+    /// reasons — the lift reads the ink as heights, the flat read draws the
+    /// characters back out — and a file has to be tidied the same way for both
+    /// or the same drawing arrives at two sizes.
+    ///
+    /// Tidying is three things. Tabs become four spaces, because a tab is a
+    /// width the file does not carry and every other column would shift by
+    /// whatever this guessed later. Trailing blank lines go, being an artifact
+    /// of how the file was saved rather than part of the drawing. And short
+    /// lines are padded to the longest, so the grid is a rectangle — a cell
+    /// past the end of a line is paper the same way a space is.
+    pub fn from_text(text: &str) -> Self {
+        let normalized = text.replace("\r\n", "\n").replace('\t', "    ");
+        let mut lines: Vec<&str> = normalized.split('\n').collect();
+        while lines.last().is_some_and(|line| line.trim().is_empty()) {
+            lines.pop();
+        }
+
+        let rows = lines.len();
+        let columns = lines.iter().map(|line| line.chars().count()).max().unwrap_or(0);
+        let mut canvas = Self::new(columns, rows, false);
+        for (row, line) in lines.iter().enumerate() {
+            for (column, character) in line.chars().enumerate() {
+                canvas.glyphs[row * columns + column] = mark(character);
+            }
+        }
+        canvas
+    }
+}
+
+/// The byte a character of somebody's drawing is held as.
+///
+/// The grid is ASCII by construction and the font is only asked for ASCII, so a
+/// drawing that arrives with box-drawing or block characters in it has to come
+/// down to one. It comes down by ink, which is the measure everything else here
+/// reads a drawing with: those characters are solid, and the solid ASCII mark is
+/// `@`. Dropping them instead would punch holes through exactly the strokes the
+/// artist drew heaviest.
+fn mark(character: char) -> u8 {
+    if character.is_whitespace() {
+        SPACE
+    } else if character.is_ascii_graphic() {
+        character as u8
+    } else {
+        b'@'
+    }
 }
 
 /// Every printable ASCII glyph ordered by roughly how much ink it puts on the
