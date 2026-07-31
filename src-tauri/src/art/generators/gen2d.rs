@@ -23,11 +23,12 @@
 use std::f64::consts::TAU;
 
 use image::RgbaImage;
-use noise::{NoiseFn, Perlin};
+use noise::Perlin;
 use tiny_skia::{Color, Paint, PathBuilder, Pixmap, Stroke, Transform};
 
 use crate::art::canvas::AsciiCanvas;
 use crate::art::generator::{Generator, GlyphGenerator};
+use crate::art::motion::{circle_noise, scatter, swell};
 use crate::art::params::Params;
 use crate::art::read::{fine_size, Reader};
 
@@ -72,26 +73,6 @@ impl Style {
     }
 }
 
-/// Deterministic scatter: the same seed and index always give the same number.
-///
-/// A generator that cannot be drawn twice is not much use — a piece worth
-/// keeping has to be reachable again — and a field's worth of positions from a
-/// running generator is only reproducible if nothing ever changes the order they
-/// are drawn in. A hash of the index has no order to get wrong. This is
-/// splitmix64, which is the usual answer to exactly this.
-fn scatter(seed: u64, index: u64) -> f64 {
-    let mut state = seed
-        .wrapping_mul(0x9e37_79b9_7f4a_7c15)
-        .wrapping_add(index.wrapping_mul(0xbf58_476d_1ce4_e5b9));
-    state ^= state >> 30;
-    state = state.wrapping_mul(0xbf58_476d_1ce4_e5b9);
-    state ^= state >> 27;
-    state = state.wrapping_mul(0x94d0_49bb_1331_11eb);
-    state ^= state >> 31;
-    // The top 53 bits, which is every bit an f64 can hold without rounding.
-    (state >> 11) as f64 / (1_u64 << 53) as f64
-}
-
 /// A colour that goes round rather than from one end to another, so no stroke
 /// is at the end of the palette and none is left grey.
 fn hue(turn: f64) -> [f32; 3] {
@@ -124,19 +105,19 @@ impl Flow {
     /// The field's angle at a point, on the circle through the noise that
     /// `phase` runs round.
     fn angle(&self, x: f64, y: f64, phase: f64) -> f64 {
-        let (around, through) = (TAU * phase).sin_cos();
         let mut level = 0.0;
         let mut reach = 1.0;
         let mut weight = 1.0;
         let mut total = 0.0;
         for _ in 0..OCTAVES {
             level += weight
-                * self.field.get([
+                * circle_noise(
+                    &self.field,
                     x * self.grain * reach,
                     y * self.grain * reach,
-                    TIME_REACH * through * reach,
-                    TIME_REACH * around * reach,
-                ]);
+                    phase,
+                    TIME_REACH * reach,
+                );
             total += weight;
             reach *= 2.0;
             weight *= 0.5;
@@ -217,7 +198,7 @@ impl Flow {
 
             // In and out over the loop, so the jump back to the start of the
             // line happens while there is nothing on screen to jump.
-            let alpha = (0.5 - 0.5 * (TAU * progress).cos()) as f32;
+            let alpha = swell(progress) as f32;
             let tint = if self.reader.colored { hue(offset) } else { [1.0; 3] };
             let mut paint = Paint { anti_alias: true, ..Paint::default() };
             paint.set_color(

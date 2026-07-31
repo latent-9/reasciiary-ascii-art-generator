@@ -3,6 +3,7 @@ pub mod export;
 pub mod filter;
 pub mod generator;
 pub mod glyphs;
+pub mod motion;
 pub mod paint;
 pub mod params;
 pub mod read;

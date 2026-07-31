@@ -20,6 +20,7 @@ use std::f64::consts::TAU;
 
 use crate::art::canvas::{AsciiCanvas, CELL_ASPECT};
 use crate::art::generator::{Generator, GlyphGenerator};
+use crate::art::motion::{ease, swell};
 use crate::art::params::Params;
 
 use super::ascii::{Renderer, Solid};
@@ -40,22 +41,6 @@ const FLOOR: f64 = 0.24;
 
 /// How sharply a crest turns over into the trough behind it.
 const EDGE: f64 = 2.6;
-
-/// The same curve either side of the middle, steepened by `hardness`.
-///
-/// Bleuje's easing, and it is doing something here that a cosine cannot. A
-/// cosine spends most of a cycle on the way somewhere; this one spends it
-/// arrived, and turns over quickly in between. On a heightfield that difference
-/// is walls: broad flats separated by short steep sides, which is what the
-/// shading has to work with. A wave made of cosines has no sides worth lighting
-/// and renders as a wash.
-fn ease(progress: f64, hardness: f64) -> f64 {
-    if progress < 0.5 {
-        0.5 * (2.0 * progress).powf(hardness)
-    } else {
-        1.0 - 0.5 * (2.0 * (1.0 - progress)).powf(hardness)
-    }
-}
 
 /// The wave, as heights over a grid of cells.
 struct Field {
@@ -112,9 +97,8 @@ impl Field {
                 // is the same argument.
                 let winding = self.arms * y.atan2(x) / TAU;
                 let travel = radius * self.rings - winding - phase;
-                let swell = 0.5 - 0.5 * (TAU * travel).cos();
 
-                let crest = FLOOR + (1.0 - FLOOR) * ease(swell, EDGE);
+                let crest = FLOOR + (1.0 - FLOOR) * ease(swell(travel), EDGE);
                 heights[row * self.columns + column] = self.depth * taper * crest;
             }
         }
