@@ -36,6 +36,13 @@
   --ink: #0b0b0b;
   --paper: #f6f5f2;
 
+  /* What the drawing itself comes out in. A scheme sets this when it is picked
+     and the swatch beside it then overrides it, so the object can be any colour
+     at all while the panel and the labels stay on the scheme's own ink — which
+     is what stops a green solid on black from taking the window's text with it
+     and leaving nothing legible to change it back with. */
+  --object: var(--ink);
+
   --bg: var(--paper);
   --fg: var(--ink);
   --panel: color-mix(in srgb, var(--paper) 94%, var(--ink));
@@ -284,6 +291,41 @@ button:disabled {
   padding: 5px 9px;
 }
 
+/* The object's own colour. The three schemes are where a render starts, not the
+   whole of the choice, so this is a swatch you open rather than a fourth preset
+   — the point of it is that it is not one of a set. */
+.tint {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 10px;
+  color: var(--dim);
+  cursor: pointer;
+}
+
+.tint input {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  background: none;
+  cursor: pointer;
+}
+
+/* A native colour input draws its swatch in a bordered box that ignores
+   `border-radius` on the input itself; the wrapper and the swatch have to be
+   reached for directly to get the same dot the schemes wear. */
+.tint input::-webkit-color-swatch-wrapper {
+  padding: 0;
+}
+
+.tint input::-webkit-color-swatch {
+  border: 1px solid var(--line);
+  border-radius: 50%;
+}
+
 /* Both of a scheme's colours at once: the ink filled, the paper around it. One
    dot could only ever show half of what the button does. */
 .swatch {
@@ -323,5 +365,5 @@ button:disabled {
   font-weight: 400;
   line-height: var(--cell-line);
   white-space: pre;
-  color: var(--fg);
+  color: var(--object);
 }

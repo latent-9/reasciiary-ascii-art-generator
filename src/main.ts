@@ -5,6 +5,9 @@ import { open, save } from "@tauri-apps/plugin-dialog";
 /// is dressed in them so what is on screen is what lands in the file. There
 /// were six terminal palettes here, which coloured the chrome and nothing else
 /// — every one of them exported the same near-white on near-black.
+///
+/// A scheme's ink is a starting point for the object rather than the last word
+/// on it; see [applyObject].
 type Theme = { name: string; ink: string; paper: string };
 
 const THEMES: Theme[] = [
@@ -55,6 +58,9 @@ const state = {
   still: false,
   format: "mp4",
   theme: THEMES[0],
+  /// What the drawing is rendered in. A scheme proposes one and this holds it
+  /// until the swatch is used, after which it is whatever was picked.
+  object: THEMES[0].ink,
   ...HOME,
 };
 
@@ -86,6 +92,22 @@ function applyTheme(theme: Theme) {
   const root = document.documentElement.style;
   root.setProperty("--ink", theme.ink);
   root.setProperty("--paper", theme.paper);
+  // Picking a scheme is picking both of its colours, so the object goes back to
+  // the one it proposes — a tint chosen against black would otherwise follow the
+  // scheme onto white and be invisible there.
+  applyObject(theme.ink);
+}
+
+/// The colour of the drawing itself.
+///
+/// Nothing is re-rendered for this. The frames are characters and the preview is
+/// text, so the colour lives entirely in a CSS property until an export reads it
+/// — which is why the object can be recoloured while a loop is playing without
+/// so much as a dropped frame.
+function applyObject(colour: string) {
+  state.object = colour;
+  document.documentElement.style.setProperty("--object", colour);
+  element<HTMLInputElement>("tint").value = colour;
 }
 
 function buildThemes() {
@@ -118,7 +140,7 @@ function request(withOutput?: string) {
     duration: String(seconds),
     columns: String(columns),
     rows: String(rows),
-    ink: state.theme.ink,
+    ink: state.object,
     paper: state.theme.paper,
   };
   if (state.still) flags.still = "";
@@ -436,6 +458,9 @@ bindSegmented("format", (value) => {
   updateHint();
 });
 buildThemes();
+element<HTMLInputElement>("tint").addEventListener("input", (event) => {
+  applyObject((event.target as HTMLInputElement).value);
+});
 applyTheme(THEMES[0]);
 updateHint();
 new ResizeObserver(fitPreview).observe(screen);
