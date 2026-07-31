@@ -5,6 +5,7 @@ pub mod generator;
 pub mod glyphs;
 pub mod paint;
 pub mod params;
+pub mod read;
 
 pub mod filters;
 pub mod generators;

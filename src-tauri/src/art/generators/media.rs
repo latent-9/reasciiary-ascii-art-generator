@@ -8,10 +8,12 @@
 //! patch, and whether the light in it lies along a diagonal or across the top is
 //! the whole of what tells an eye where the edges are.
 //!
-//! So the picture is sampled at [`CELL_PIXELS`] a cell and handed to the same
-//! matcher the 3D lift uses. An edge in the photograph comes back as a glyph
-//! running the same way the edge does, and the flat parts still grade, because
-//! that matcher weighs both questions at once.
+//! So the picture is sampled at a whole patch a cell and handed to
+//! [`super::super::read`], which matches it the way the 3D lift's own cells are
+//! matched. An edge in the photograph comes back as a glyph running the same way
+//! the edge does. What is left here is everything that is particular to a file:
+//! decoding it, keeping its shape on a grid that is not its shape, and holding
+//! to the timing it was authored with.
 
 use std::fs::File;
 use std::io::BufReader;
@@ -21,23 +23,10 @@ use std::sync::Mutex;
 use image::imageops::{crop_imm, resize, FilterType};
 use image::{AnimationDecoder, ImageReader, RgbaImage};
 
-use crate::art::canvas::{AsciiCanvas, AsciiColor, AsciiRamp, CELL_ASPECT};
+use crate::art::canvas::{AsciiCanvas, CELL_ASPECT};
 use crate::art::generator::{Generator, GlyphGenerator};
-use crate::art::glyphs::{ALPHABET, CELL_PIXELS, CELL_PIXELS_TALL, CELL_PIXELS_WIDE};
 use crate::art::params::Params;
-
-/// Below this a cell is background rather than a very faint mark.
-///
-/// The matcher has no space in it — whether a cell is background is not a
-/// question about which mark fits best, and asking it that way is how the dark
-/// half of a photograph turns into a field of commas.
-///
-/// It sits this high because a mark is painted at full strength whatever tone
-/// it stands for: the only grey in the output is how much of the cell the glyph
-/// covers. A near-black that is not black is honestly a faint mark, and a faint
-/// mark on paper is brighter than the tone it came from — so the near-blacks
-/// come out as a haze over everything the picture meant to leave dark.
-const BACKGROUND: f32 = 0.09;
+use crate::art::read::{fine_size, Reader};
 
 /// How long a frame holds when the file does not say.
 const FRAME_SECONDS: f64 = 0.1;
@@ -57,38 +46,6 @@ impl Fit {
             "contain" => Ok(Self::Contain),
             "cover" => Ok(Self::Cover),
             other => Err(format!("`{other}` is not a fit — try contain or cover")),
-        }
-    }
-}
-
-/// How a cell's patch of light becomes a character.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Marks {
-    /// By what the patch looks like, which traces edges.
-    Matched,
-    /// By how much light it holds and nothing else, against one of the ordered
-    /// ramps. Coarser, and the right answer for a picture that is already flat
-    /// artwork rather than a photograph.
-    Graded(AsciiRamp),
-}
-
-impl Marks {
-    fn named(name: &str) -> Result<Self, String> {
-        match name {
-            "match" => Ok(Self::Matched),
-            "shades" => Ok(Self::Graded(AsciiRamp::Shades)),
-            "detailed" => Ok(Self::Graded(AsciiRamp::Detailed)),
-            "ink" => Ok(Self::Graded(AsciiRamp::Ink)),
-            other => Err(format!(
-                "`{other}` is not a set of marks — try match, shades, detailed or ink"
-            )),
-        }
-    }
-
-    fn byte(self, cell: &[f32; CELL_PIXELS], light: f32) -> u8 {
-        match self {
-            Self::Matched => ALPHABET.nearest(cell, false),
-            Self::Graded(ramp) => AsciiRamp::byte_for_intensity(light as f64, ramp.bytes()),
         }
     }
 }
@@ -122,12 +79,7 @@ pub struct Media {
     /// Seconds the whole sequence takes.
     span: f64,
     fit: Fit,
-    marks: Marks,
-    colored: bool,
-    inverted: bool,
-    /// How far the tones are pushed apart around the middle. One leaves them
-    /// alone.
-    contrast: f32,
+    reader: Reader,
     sampled: Mutex<Option<Sampled>>,
 }
 
@@ -191,10 +143,11 @@ impl Media {
             }
         };
 
+        let (wide, tall) = fine_size(across, down);
         let fine = resize(
             &source,
-            (across * CELL_PIXELS_WIDE) as u32,
-            (down * CELL_PIXELS_TALL) as u32,
+            wide,
+            tall,
             // Averaging, not nearest: a cell's patch is meant to be what that
             // part of the picture looks like, and a picture sampled at a point
             // is a picture of its own noise.
@@ -202,22 +155,11 @@ impl Media {
         );
         (fine, ((columns - across) / 2, (rows - down) / 2))
     }
-
-    /// How much light a pixel carries, with the picture's own settings applied.
-    fn light(&self, pixel: &[u8; 4]) -> f32 {
-        let [red, green, blue, alpha] = pixel.map(|channel| channel as f32 / 255.0);
-        // What the eye weighs each channel at, which is not what a mean does.
-        let level = 0.2126 * red + 0.7152 * green + 0.0722 * blue;
-        let level = if self.inverted { 1.0 - level } else { level };
-        // Around the middle, so raising it opens the picture up rather than
-        // washing it out.
-        (0.5 + (level - 0.5) * self.contrast).clamp(0.0, 1.0) * alpha
-    }
 }
 
 impl GlyphGenerator for Media {
     fn canvas(&self, columns: usize, rows: usize, time: f64) -> AsciiCanvas {
-        let mut canvas = AsciiCanvas::new(columns, rows, self.colored);
+        let mut canvas = AsciiCanvas::new(columns, rows, self.reader.colored);
         if columns == 0 || rows == 0 || self.frames.is_empty() {
             return canvas;
         }
@@ -233,42 +175,7 @@ impl GlyphGenerator for Media {
             *held = Some(Sampled { frame, columns, rows, fine, at });
         }
         let sampled = held.as_ref().expect("a sample was just taken");
-
-        let across = sampled.fine.width() as usize / CELL_PIXELS_WIDE;
-        let down = sampled.fine.height() as usize / CELL_PIXELS_TALL;
-        for row in 0..down {
-            for column in 0..across {
-                let mut cell = [0.0_f32; CELL_PIXELS];
-                let mut tint = [0.0_f32; 3];
-                for y in 0..CELL_PIXELS_TALL {
-                    for x in 0..CELL_PIXELS_WIDE {
-                        let pixel = sampled.fine.get_pixel(
-                            (column * CELL_PIXELS_WIDE + x) as u32,
-                            (row * CELL_PIXELS_TALL + y) as u32,
-                        );
-                        cell[y * CELL_PIXELS_WIDE + x] = self.light(&pixel.0);
-                        for (channel, held) in tint.iter_mut().enumerate() {
-                            *held += pixel.0[channel] as f32 / 255.0;
-                        }
-                    }
-                }
-
-                let light = cell.iter().sum::<f32>() / CELL_PIXELS as f32;
-                if light <= BACKGROUND {
-                    continue;
-                }
-                let color = self.colored.then(|| {
-                    let mean = tint.map(|channel| channel as f64 / CELL_PIXELS as f64);
-                    AsciiColor::from_unit(mean[0], mean[1], mean[2])
-                });
-                canvas.set(
-                    sampled.at.0 + column,
-                    sampled.at.1 + row,
-                    self.marks.byte(&cell, light),
-                    color,
-                );
-            }
-        }
+        self.reader.draw_into(&mut canvas, &sampled.fine, sampled.at);
         canvas
     }
 
@@ -338,10 +245,7 @@ fn assemble(params: &Params) -> Result<Media, String> {
         frames,
         span,
         fit: Fit::named(params.string("fit").unwrap_or("contain"))?,
-        marks: Marks::named(params.string("marks").unwrap_or("match"))?,
-        colored: params.is_set("color"),
-        inverted: params.is_set("invert"),
-        contrast: params.f64("contrast", 1.0)?.clamp(0.1, 6.0) as f32,
+        reader: Reader::from_params(params)?,
         sampled: Mutex::new(None),
     })
 }
