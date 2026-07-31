@@ -87,6 +87,13 @@ impl Tones {
     /// about gets.
     pub const PLAIN: Self = Self { inverted: false, contrast: 1.0 };
 
+    /// Whether nothing has been asked of the source: neither end swapped, and
+    /// the middle left where it was. A tool that can show a source untouched
+    /// has to ask before it does.
+    pub fn is_plain(self) -> bool {
+        !self.inverted && (self.contrast - Self::PLAIN.contrast).abs() < f32::EPSILON
+    }
+
     pub fn from_params(params: &Params) -> Result<Self, String> {
         Ok(Self {
             inverted: params.is_set("invert"),

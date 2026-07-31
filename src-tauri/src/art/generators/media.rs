@@ -14,6 +14,15 @@
 //! the edge does. What is left here is everything that is particular to a file:
 //! decoding it, keeping its shape on a grid that is not its shape, and holding
 //! to the timing it was authored with.
+//!
+//! A drawing is a file this can read too, and the one it has least to do to. It
+//! arrives as characters already, so at the grid it was written at it is laid
+//! down as it stands — the mark that best fits a cell is the one somebody typed
+//! there, and a round trip through the matcher would only answer with the marks
+//! it happens to know. Everything the tool is for is still there: the drawing
+//! goes out as a PNG, a GIF or an MP4 in the scheme on screen. It is when the
+//! grid is not the drawing's own that there is a question worth asking, and
+//! then it goes the same way a picture does.
 
 use std::fs::File;
 use std::io::BufReader;
@@ -26,7 +35,7 @@ use image::{AnimationDecoder, ImageReader, RgbaImage};
 use crate::art::canvas::{AsciiCanvas, CELL_ASPECT};
 use crate::art::generator::{Generator, GlyphGenerator};
 use crate::art::params::Params;
-use crate::art::read::{fine_size, Reader};
+use crate::art::read::{fine_size, is_drawing, raster_of, Marks, Reader};
 
 /// How long a frame holds when the file does not say.
 const FRAME_SECONDS: f64 = 0.1;
@@ -76,6 +85,11 @@ struct Sampled {
 
 pub struct Media {
     frames: Vec<Still>,
+    /// The characters the source was written with, when it was written in
+    /// characters at all. Kept beside the raster taken off it rather than
+    /// instead of it: one of the two is right at the drawing's own size and the
+    /// other at every size but that.
+    drawing: Option<AsciiCanvas>,
     /// Seconds the whole sequence takes.
     span: f64,
     fit: Fit,
@@ -84,6 +98,27 @@ pub struct Media {
 }
 
 impl Media {
+    /// The drawing to lay down as written, if that is what this grid asks for.
+    ///
+    /// A drawing is already what this tool makes, so at the size it was written
+    /// there is nothing to work out. It is only when something else is asked
+    /// that it has to be drawn out as light and read back: a grid too small to
+    /// hold it, a fit that says fill the grid rather than show all of the
+    /// drawing, another set of marks, or a reading that swaps its ends or opens
+    /// up its middle. Each of those is a request to redraw it, and the answer to
+    /// all of them is the picture path below.
+    ///
+    /// A grid larger than the drawing is not one of them. Blowing a drawing up
+    /// is not the same act as shrinking one — nothing is lost by leaving it at
+    /// the size it was written and centring it, and enlarging it would only
+    /// restate every character as a coarser guess at itself.
+    fn verbatim(&self, columns: usize, rows: usize) -> Option<&AsciiCanvas> {
+        let drawing = self.drawing.as_ref()?;
+        let asked = self.reader.marks != Marks::Matched || !self.reader.tones.is_plain();
+        let fits = self.fit == Fit::Contain && drawing.columns <= columns && drawing.rows <= rows;
+        (!asked && fits).then_some(drawing)
+    }
+
     /// Which frame is on screen at `time`, and the picture's own timing decides
     /// it: a GIF carries a delay per frame and they are not all the same.
     fn frame_at(&self, time: f64) -> usize {
@@ -159,6 +194,19 @@ impl Media {
 
 impl GlyphGenerator for Media {
     fn canvas(&self, columns: usize, rows: usize, time: f64) -> AsciiCanvas {
+        if let Some(drawing) = self.verbatim(columns, rows) {
+            // Monochrome whatever `--color` says: a file of characters carries
+            // none, so the honest answer is the ink the frame is drawn in.
+            let mut canvas = AsciiCanvas::new(columns, rows, false);
+            let (left, top) = ((columns - drawing.columns) / 2, (rows - drawing.rows) / 2);
+            for row in 0..drawing.rows {
+                for column in 0..drawing.columns {
+                    canvas.set(left + column, top + row, drawing.get(column, row), None);
+                }
+            }
+            return canvas;
+        }
+
         let mut canvas = AsciiCanvas::new(columns, rows, self.reader.colored);
         if columns == 0 || rows == 0 || self.frames.is_empty() {
             return canvas;
@@ -234,15 +282,45 @@ fn read(path: &str) -> Result<Vec<Still>, String> {
     Ok(vec![Still { image: image.to_rgba8(), seconds: FRAME_SECONDS }])
 }
 
+/// A drawing, and the light it stands for.
+///
+/// Both are kept. The characters answer the grid the drawing was written at and
+/// the raster answers every other one, and which of the two is wanted is not
+/// known until a grid is asked for — the window resizes, and an export is
+/// written at a size of its own.
+fn drawn(text: &str) -> (AsciiCanvas, Vec<Still>) {
+    let drawing = AsciiCanvas::from_text(text);
+    let frames = vec![Still { image: raster_of(&drawing), seconds: FRAME_SECONDS }];
+    (drawing, frames)
+}
+
 fn assemble(params: &Params) -> Result<Media, String> {
-    let path = params
-        .first_positional()
-        .ok_or("media needs a picture to read")?;
-    let frames = read(path)?;
+    // `--text` carries a drawing inline, which is how the window offers a sample
+    // without shipping a file whose path differs between dev and a bundle.
+    let (drawing, frames) = match params.string("text") {
+        Some(inline) => {
+            let (drawing, frames) = drawn(inline);
+            (Some(drawing), frames)
+        }
+        None => {
+            let path = params
+                .first_positional()
+                .ok_or("media needs a drawing or a picture to read")?;
+            if is_drawing(path) {
+                let text = std::fs::read_to_string(path)
+                    .map_err(|error| format!("cannot read `{path}`: {error}"))?;
+                let (drawing, frames) = drawn(&text);
+                (Some(drawing), frames)
+            } else {
+                (None, read(path)?)
+            }
+        }
+    };
     let span = frames.iter().map(|still| still.seconds).sum();
 
     Ok(Media {
         frames,
+        drawing,
         span,
         fit: Fit::named(params.string("fit").unwrap_or("contain"))?,
         reader: Reader::from_params(params)?,
@@ -276,6 +354,19 @@ mod tests {
             let level = (255 - (x * 255 / wide.max(1)) as u8).max(1);
             Rgba([level, level, level, 255])
         })
+    }
+
+    /// The same tool pointed at a drawing carried inline, which is the path the
+    /// window's sample takes.
+    fn drawing(text: &str, flags: &[(&str, &str)]) -> Media {
+        let mut params = Params::default();
+        params.flags.insert("text".into(), Some(text.to_string()));
+        for (name, value) in flags {
+            params
+                .flags
+                .insert(name.to_string(), Some(value.to_string()));
+        }
+        assemble(&params).expect("the tool builds")
     }
 
     fn media(path: &str, flags: &[(&str, &str)]) -> Media {
@@ -333,11 +424,66 @@ mod tests {
 
     #[test]
     fn a_file_that_is_not_there_says_so() {
-        let params = Params {
-            positional: vec!["/no/such/picture.png".into()],
-            ..Params::default()
-        };
-        let message = assemble(&params).err().expect("nothing was read");
-        assert!(message.contains("cannot read"), "{message}");
+        for path in ["/no/such/picture.png", "/no/such/drawing.txt"] {
+            let params = Params { positional: vec![path.into()], ..Params::default() };
+            let message = assemble(&params).err().expect("nothing was read");
+            assert!(message.contains("cannot read"), "{message}");
+        }
+    }
+
+    /// A drawing is already the thing this tool makes, so on a grid that can
+    /// hold it there is nothing to decide: what somebody typed is what the frame
+    /// shows, centred on whatever it was given.
+    #[test]
+    fn a_drawing_is_laid_down_as_it_was_written() {
+        const ART: &str = " /\\_/\\\n( o.o )\n > ^ <";
+        let written = AsciiCanvas::from_text(ART);
+        let canvas = drawing(ART, &[]).canvas(21, 9, 0.0);
+
+        let (left, top) = (
+            (canvas.columns - written.columns) / 2,
+            (canvas.rows - written.rows) / 2,
+        );
+        for row in 0..written.rows {
+            for column in 0..written.columns {
+                assert_eq!(
+                    canvas.get(left + column, top + row) as char,
+                    written.get(column, row) as char,
+                    "cell {column},{row} of the drawing"
+                );
+            }
+        }
+    }
+
+    /// And a drawing the grid cannot hold is not cut down to it. Characters do
+    /// not shrink, so it is drawn out as light and read back — all of it, at the
+    /// size that fits.
+    #[test]
+    fn a_drawing_too_wide_for_the_grid_arrives_whole() {
+        let art = vec!["@".repeat(60); 6].join("\n");
+        let canvas = drawing(&art, &[]).canvas(24, 12, 0.0);
+
+        let drawn = |column: usize| (0..canvas.rows).any(|row| canvas.get(column, row) != SPACE);
+        assert!(drawn(0), "the left of the drawing was cut off");
+        assert!(drawn(canvas.columns - 1), "the right of the drawing was cut off");
+    }
+
+    /// Asking for a set of marks is asking for the drawing to be drawn again in
+    /// them, and that is a question the characters it arrived with cannot
+    /// answer.
+    #[test]
+    fn a_drawing_asked_for_other_marks_is_drawn_again_in_them() {
+        const ART: &str = "AAAA\nAAAA";
+        assert!(
+            drawing(ART, &[]).canvas(20, 8, 0.0).glyphs.contains(&b'A'),
+            "the drawing was not laid down as written"
+        );
+
+        let graded = drawing(ART, &[("marks", "shades")]).canvas(20, 8, 0.0);
+        assert!(!graded.glyphs.contains(&b'A'), "`A` is not one of the shades");
+        assert!(
+            graded.glyphs.iter().any(|&glyph| glyph != SPACE),
+            "nothing was drawn in them either"
+        );
     }
 }
