@@ -98,6 +98,10 @@ struct Face {
 /// them by more than the rounding a character cell already imposes.
 const TURN_STEPS: usize = 180;
 
+/// Points on the rim of a round bound. Its extremes all lie on a rim, so this
+/// is the whole of what a fit has to look at.
+const RIM_STEPS: usize = 64;
+
 /// The shape the frame is fitted to.
 ///
 /// A drawing is a wide, shallow slab: the ball around it has to reach its far
@@ -106,73 +110,93 @@ const TURN_STEPS: usize = 180;
 /// stay constant as the model turns, so a spin does not make it breathe.
 enum Bound {
     Slab { half_width: f64, half_height: f64, half_depth: f64 },
+    /// A relief cut on a disc rather than on a rectangle.
+    Puck { radius: f64, half_depth: f64 },
 }
 
 impl Bound {
-    fn extents(&self, pitch: f64) -> (f64, f64) {
+    /// The points every question about room is answered by.
+    ///
+    /// Each of the four below used to carry its own closed form, derived off
+    /// the slab's eight corners. They were right, and they were four chances to
+    /// be wrong about the next shape — and the slab's hide an assumption a
+    /// round solid does not keep: that whatever reaches furthest across also
+    /// reaches furthest back. A disc is thin exactly where it is widest, so a
+    /// fit that assumes a corner out there holds a third of the frame back for
+    /// something the disc has never had.
+    fn hull(&self) -> Vec<Vector3> {
         match *self {
             Self::Slab { half_width, half_height, half_depth } => {
-                // Turning sweeps the slab's near corner out to here and no further.
-                let horizontal = (half_width * half_width + half_depth * half_depth).sqrt();
-                // Tipping trades the drawing's own height for that same sweep.
-                let vertical =
-                    pitch.cos().abs() * half_height + pitch.sin().abs() * horizontal;
-                (horizontal.max(0.001), vertical.max(0.001))
+                let mut points = Vec::with_capacity(8);
+                for x in [-half_width, half_width] {
+                    for y in [-half_height, half_height] {
+                        for z in [-half_depth, half_depth] {
+                            points.push(Vector3::new(x, y, z));
+                        }
+                    }
+                }
+                points
+            }
+            Self::Puck { radius, half_depth } => (0..RIM_STEPS)
+                .flat_map(|step| {
+                    let angle = TAU * step as f64 / RIM_STEPS as f64;
+                    let (x, y) = (radius * angle.cos(), radius * angle.sin());
+                    [-half_depth, half_depth].map(|z| Vector3::new(x, y, z))
+                })
+                .collect(),
+        }
+    }
+
+    /// Shows `look` every hull point at every yaw the fit has to hold for.
+    fn sweep(&self, pitch: f64, yaws: &[f64], mut look: impl FnMut(Vector3)) {
+        let hull = self.hull();
+        for &yaw in yaws {
+            let rotation = Rotation::new(yaw, pitch);
+            for point in &hull {
+                look(rotation.apply(*point));
             }
         }
     }
 
-    /// The furthest in front of its middle the solid ever reaches over a turn —
-    /// [`Self::depth_extent`] at its worst yaw, which is the same trade tipping
-    /// makes in [`Self::extents`] with the two terms swapped.
-    fn depth_reach(&self, pitch: f64) -> f64 {
-        match *self {
-            Self::Slab { half_width, half_height, half_depth } => {
-                let swept = (half_width * half_width + half_depth * half_depth).sqrt();
-                pitch.sin().abs() * half_height + pitch.cos().abs() * swept
-            }
-        }
+    fn extents(&self, pitch: f64, yaws: &[f64]) -> (f64, f64) {
+        let (mut horizontal, mut vertical) = (0.001_f64, 0.001_f64);
+        self.sweep(pitch, yaws, |spun| {
+            horizontal = horizontal.max(spun.x.abs());
+            vertical = vertical.max(spun.y.abs());
+        });
+        (horizontal, vertical)
+    }
+
+    /// The furthest in front of its middle the solid ever reaches —
+    /// [`Self::depth_extent`] at its worst yaw.
+    fn depth_reach(&self, pitch: f64, yaws: &[f64]) -> f64 {
+        let mut reach = 0.001_f64;
+        self.sweep(pitch, yaws, |spun| reach = reach.max(spun.z.abs()));
+        reach
     }
 
     /// Half the width and half the height the solid covers on screen at unit
-    /// scale, seen from `eye` away, swept over a whole turn so the fit holds
-    /// still rather than breathing as the solid spins.
+    /// scale, seen from `eye` away, swept over every yaw the solid will be seen
+    /// at so the fit holds still rather than breathing as it spins.
     ///
-    /// The corners go through the same projection the faces do, which starts to
-    /// matter once the camera converges: a near corner is drawn larger than the
+    /// The hull goes through the same projection the faces do, which starts to
+    /// matter once the camera converges: a near point is drawn larger than the
     /// box it came from says. Allowing for that the cheap way — taking the
     /// parallel extents and scaling them by the most any point can possibly
     /// gain — hands a fifth of the frame to a margin nothing reaches into, and
     /// on a grid this coarse a fifth of the frame is a lot of detail to lose.
-    fn screen_extents(&self, pitch: f64, eye: f64) -> (f64, f64) {
-        match *self {
-            Self::Slab { half_width, half_height, half_depth } => {
-                let mut horizontal: f64 = 0.001;
-                let mut vertical: f64 = 0.001;
-                for step in 0..TURN_STEPS {
-                    let rotation = Rotation::new(
-                        TAU * step as f64 / TURN_STEPS as f64,
-                        pitch,
-                    );
-                    for x in [-half_width, half_width] {
-                        for y in [-half_height, half_height] {
-                            for z in [-half_depth, half_depth] {
-                                let spun = rotation.apply(Vector3::new(x, y, z));
-                                let converge = eye / (eye - spun.z);
-                                horizontal = horizontal.max((spun.x * converge).abs());
-                                vertical = vertical.max((spun.y * converge).abs());
-                            }
-                        }
-                    }
-                }
-                (horizontal, vertical)
-            }
-        }
+    fn screen_extents(&self, pitch: f64, yaws: &[f64], eye: f64) -> (f64, f64) {
+        let (mut horizontal, mut vertical) = (0.001_f64, 0.001_f64);
+        self.sweep(pitch, yaws, |spun| {
+            let converge = eye / (eye - spun.z);
+            horizontal = horizontal.max((spun.x * converge).abs());
+            vertical = vertical.max((spun.y * converge).abs());
+        });
+        (horizontal, vertical)
     }
 
-    /// How far the nearest point of the turned slab stands in front of its
-    /// middle — the half-extent of the solid along the axis the camera looks
-    /// down.
+    /// How far the nearest point of the turned solid stands in front of its
+    /// middle — the half-extent along the axis the camera looks down.
     ///
     /// The bounding sphere's radius answers a nearby question and was what the
     /// shading used, but it is the wrong number: a drawing is wide and shallow,
@@ -180,15 +204,11 @@ impl Bound {
     /// within a few percent of the middle. Depth cueing then had almost no range
     /// to work with and the relief it exists to bring out barely showed.
     fn depth_extent(&self, yaw: f64, pitch: f64) -> f64 {
-        match *self {
-            Self::Slab { half_width, half_height, half_depth } => {
-                // The rotation's z row, read straight off `Rotation::apply`.
-                let extent = (yaw.sin() * pitch.cos()).abs() * half_width
-                    + pitch.sin().abs() * half_height
-                    + (yaw.cos() * pitch.cos()).abs() * half_depth;
-                extent.max(0.001)
-            }
-        }
+        let rotation = Rotation::new(yaw, pitch);
+        self.hull()
+            .into_iter()
+            .map(|point| rotation.apply(point).z.abs())
+            .fold(0.001, f64::max)
     }
 }
 
@@ -530,6 +550,9 @@ pub struct Renderer {
     pub yaw: f64,
     pub pitch: f64,
     pub zoom: f64,
+    /// Whether the yaw is going to move. Only the fit cares — see
+    /// [`Self::yaws`] — and only a tool that holds still should clear it.
+    pub spins: bool,
     lights: [Light; 3],
     /// The brightest any surface in this rig can be lit, so the diffuse sum can
     /// be read as a fraction of what is on offer rather than of what three
@@ -621,6 +644,7 @@ impl Renderer {
             yaw: 0.0,
             pitch: 0.0,
             zoom: 1.0,
+            spins: true,
             peak,
             floor: floor.min(peak - 1e-6),
             lights,
@@ -636,13 +660,30 @@ impl Renderer {
     ///
     /// Measured at no pitch rather than at the current one: pitching the model
     /// changes how tall it stands, and a frame that followed would resize under
-    /// a drag. The horizontal extent already covers a whole turn, so this holds
-    /// steady through a spin — which is the part that has to.
+    /// a drag. The horizontal extent already covers everything the yaw will do,
+    /// so this holds steady through a spin — which is the part that has to.
     pub fn frame_aspect(&self) -> f64 {
-        let (_, horizontal, vertical) = self.camera(0.0);
+        let (_, horizontal, vertical) = self.camera(0.0, self.yaw);
         // A cell is `CELL_ASPECT` times taller than it is wide, so a world box
         // that square needs that many fewer rows than columns to hold it.
         horizontal * CELL_ASPECT / vertical
+    }
+
+    /// The yaws the frame has to be big enough for.
+    ///
+    /// A whole turn for a solid that turns: fitting each frame to itself would
+    /// have the model swell and shrink as it went round, which reads as the
+    /// camera lurching rather than as the solid turning. For one that does not
+    /// turn there is nothing to hold still, and sweeping anyway costs the frame
+    /// everything the worst yaw would have needed — on a disc, half of it, to a
+    /// side-on view that is never drawn.
+    fn yaws(&self, yaw: f64) -> Vec<f64> {
+        if !self.spins {
+            return vec![yaw];
+        }
+        (0..TURN_STEPS)
+            .map(|step| TAU * step as f64 / TURN_STEPS as f64)
+            .collect()
     }
 
     /// The camera the frame is fitted to at this pitch: how far off the eye
@@ -653,11 +694,12 @@ impl Renderer {
     /// being held up against the glass. Reaching along the view axis counts too,
     /// and has to: a tall drawing turned on its side puts its length in front of
     /// the eye, and a standoff blind to that would set the eye down inside it.
-    fn camera(&self, pitch: f64) -> (f64, f64, f64) {
-        let (horizontal, vertical) = self.solid.bound.extents(pitch);
-        let eye =
-            EYE_REACH * horizontal.max(vertical).max(self.solid.bound.depth_reach(pitch));
-        let (horizontal, vertical) = self.solid.bound.screen_extents(pitch, eye);
+    fn camera(&self, pitch: f64, yaw: f64) -> (f64, f64, f64) {
+        let yaws = self.yaws(yaw);
+        let bound = &self.solid.bound;
+        let (horizontal, vertical) = bound.extents(pitch, &yaws);
+        let eye = EYE_REACH * horizontal.max(vertical).max(bound.depth_reach(pitch, &yaws));
+        let (horizontal, vertical) = bound.screen_extents(pitch, &yaws, eye);
         (eye, horizontal, vertical)
     }
 
@@ -675,7 +717,7 @@ impl Renderer {
         let mut surface = Surface::new(columns, rows);
 
         let rotation = Rotation::new(yaw, self.pitch);
-        let (eye, horizontal, vertical) = self.camera(self.pitch);
+        let (eye, horizontal, vertical) = self.camera(self.pitch, yaw);
 
         // A cell is CELL_PIXELS_TALL / CELL_PIXELS_WIDE = CELL_ASPECT times
         // taller than it is wide, which is exactly how much taller than wide the
@@ -1038,11 +1080,11 @@ pub fn build(params: &Params) -> Result<Generator, String> {
     renderer.pitch = params.f64("pitch", 0.5_f64.to_degrees())?.to_radians();
     renderer.zoom = params.f64("zoom", 0.92)?;
 
-    Ok(Generator::Glyph(Box::new(SpinningAscii {
-        renderer,
-        spin_rate: params.f64("spin", 1.2)?,
-        still: params.is_set("still"),
-    })))
+    let spin_rate = params.f64("spin", 1.2)?;
+    let still = params.is_set("still");
+    renderer.spins = !still && spin_rate != 0.0;
+
+    Ok(Generator::Glyph(Box::new(SpinningAscii { renderer, spin_rate, still })))
 }
 
 #[cfg(test)]
@@ -1206,7 +1248,7 @@ mod tests {
         let plain = Solid::from_text(DIAMOND, 8.0);
         let padded = Solid::from_text(&format!("{DIAMOND}\n\n   \n\n"), 8.0);
         assert_eq!(plain.faces.len(), padded.faces.len());
-        assert_eq!(plain.bound.extents(0.5), padded.bound.extents(0.5));
+        assert_eq!(plain.bound.extents(0.5, &[0.6]), padded.bound.extents(0.5, &[0.6]));
         assert_eq!(
             plain.bound.depth_extent(0.6, 0.5),
             padded.bound.depth_extent(0.6, 0.5)
