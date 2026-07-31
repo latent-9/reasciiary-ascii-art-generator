@@ -57,10 +57,6 @@ const renderButton = element<HTMLButtonElement>("render");
 /// picture and then coming back finds the solid at the angle it was left at.
 type Session = {
   values: Record<string, string>;
-  file: string | null;
-  /// A drawing carried inline instead of read from a path — the built-in
-  /// sample, which is what the ascii tool opens on.
-  text: string | null;
   camera: Camera;
 };
 
@@ -71,13 +67,26 @@ function session(tool: Tool = state.tool): Session {
   if (found) return found;
   const fresh: Session = {
     values: defaults(tool.groups),
-    file: null,
-    text: tool.source?.sample ?? null,
     camera: { ...(tool.camera ?? { yaw: 0, pitch: 0, zoom: 1 }) },
   };
   sessions.set(tool.name, fresh);
   return fresh;
 }
+
+/// The file every tool that reads one is looking at.
+///
+/// Shared rather than kept per tool, which is what the settings beside it are.
+/// A setting belongs to the tool that offers it — a depth means nothing to the
+/// flat read — but the file does not: the two tools are the same question asked
+/// with and without the third dimension, and the whole use of asking it flat
+/// first is that it is about the file you are going to lift. Kept apart the
+/// answer was to open it twice.
+const source: {
+  file: string | null;
+  /// A drawing carried inline instead of read from a path — the built-in
+  /// sample, which is what the window opens on.
+  text: string | null;
+} = { file: null, text: TOOLS[0].source?.sample ?? null };
 
 const state = {
   tool: TOOLS[0],
@@ -94,7 +103,7 @@ const state = {
 /// A tool that reads a file has nothing to draw until it has one.
 const ready = () => {
   const tool = state.tool;
-  return !tool.source || session().file !== null || session().text !== null;
+  return !tool.source || source.file !== null || source.text !== null;
 };
 
 const number = (flag: string) => Number(read(flag));
@@ -323,11 +332,11 @@ function request(withOutput?: string) {
   flags.duration = String(seconds);
   flags.ink = state.object;
   flags.paper = state.theme.paper;
-  if (here.text) flags.text = here.text;
+  if (source.text) flags.text = source.text;
 
   return {
     tool: tool.name,
-    positional: here.file && !here.text ? [here.file] : [],
+    positional: source.file && !source.text ? [source.file] : [],
     flags,
     output: withOutput ?? null,
   };
@@ -533,11 +542,10 @@ function updateHint() {
 /// The line at bottom left: what is being drawn, and how to frame it.
 function showSource() {
   const tool = state.tool;
-  const here = session();
   const parts: string[] = [];
   if (tool.source) {
-    if (here.file) parts.push(here.file.split("/").pop() ?? here.file);
-    else if (here.text) parts.push("built-in sample");
+    if (source.file) parts.push(source.file.split("/").pop() ?? source.file);
+    else if (source.text) parts.push("built-in sample");
     else parts.push(`no ${tool.source.label.toLowerCase()} yet`);
   }
   if (tool.camera) parts.push("drag to turn · scroll to zoom · double-click to reset");
@@ -618,19 +626,18 @@ const clamp = (value: number, low: number, high: number) =>
 const wrap = (degrees: number) => ((((degrees + 180) % 360) + 360) % 360) - 180;
 
 openButton.addEventListener("click", async () => {
-  const source = state.tool.source;
-  if (!source) return;
+  const offered = state.tool.source;
+  if (!offered) return;
   const picked = await open({
     multiple: false,
-    filters: [{ name: source.label, extensions: source.extensions }],
+    filters: [{ name: offered.label, extensions: offered.extensions }],
   });
   if (typeof picked !== "string") return;
   // A different file is a different subject, so a render of the last one is of no
   // more use than a render of the last tool.
   subject += 1;
-  const here = session();
-  here.file = picked;
-  here.text = null;
+  source.file = picked;
+  source.text = null;
   status.className = "status";
   status.textContent = "";
   showSource();

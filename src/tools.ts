@@ -81,6 +81,19 @@ const DIAMOND = [
   "        @        ",
 ].join("\n");
 
+/// What both tools read, because both read the same thing.
+///
+/// The lift and the flat read are one question asked with and without the third
+/// dimension, so offering them different files would be inventing a difference
+/// the backend does not have: a drawing is a grid of characters either way, and
+/// a picture is a grid of light. Shared rather than written twice, so a format
+/// added to one is never missing from the other.
+const SUBJECT: Source = {
+  label: "drawing or picture",
+  extensions: ["txt", "asc", "ans", "png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff"],
+  sample: DIAMOND,
+};
+
 /// The two tools that draw pixels and read them back offer the same choices
 /// about the reading, because it is the same reader behind both. The controls
 /// are shared rather than copied — nothing here is written to, so one list can
@@ -123,8 +136,8 @@ const MOVEMENT: Control[] = [
 ];
 
 /// The window is the lift's window, and the flat read is here because it is the
-/// same question asked without the third dimension — open the picture, see what
-/// the glyphs make of it, then lift it.
+/// same question asked without the third dimension — open the file, see what the
+/// glyphs make of it, then lift it. One file, carried between the two.
 ///
 /// The tools that brought their own subject are not in this list. A formula
 /// turning on its own is a fine thing to watch and a poor thing to open an app
@@ -136,11 +149,7 @@ export const TOOLS: Tool[] = [
     name: "ascii",
     label: "3D",
     blurb: "A drawing or a picture lifted into a solid, ink for height.",
-    source: {
-      label: "drawing or picture",
-      extensions: ["txt", "asc", "ans", "png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff"],
-      sample: DIAMOND,
-    },
+    source: SUBJECT,
     camera: { yaw: 34, pitch: 29, zoom: 0.92 },
     groups: [
       {
@@ -171,11 +180,8 @@ export const TOOLS: Tool[] = [
   {
     name: "media",
     label: "Flat",
-    blurb: "The same picture read straight back as glyphs, with no lift.",
-    source: {
-      label: "picture",
-      extensions: ["png", "jpg", "jpeg", "gif", "webp", "bmp", "tif", "tiff"],
-    },
+    blurb: "The same file read straight back as glyphs, with no lift.",
+    source: SUBJECT,
     groups: [
       {
         title: "Frame",
