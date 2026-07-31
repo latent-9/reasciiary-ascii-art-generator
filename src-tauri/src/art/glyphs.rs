@@ -50,21 +50,24 @@ const LAST: u8 = b'~';
 /// Which of them a cell may actually be drawn with.
 ///
 /// `ascii3d` matches against all ninety-five and is right to: it renders smooth
-/// meshes, where a cell that is not flat is nearly always a real edge. A drawing
-/// lifted by ink coverage is not smooth — it is terraced, so small faces at
-/// different angles meet inside a single cell all over the interior, and the
-/// matcher gets asked about far more cells than a mesh would ever produce.
+/// meshes at a size where a cell is nearly a pixel, and any mark that fits is a
+/// fair answer. Here the matcher is asked one question only — which way does the
+/// silhouette run through this cell — and most of the alphabet cannot answer it
+/// without saying something else as well.
 ///
-/// Answering those with the full range put `g`, `j`, `m`, `p`, `q` and `w` in
-/// the middle of the picture, and what the eye does with a row of lowercase
-/// letters is read it. They win on ink statistics honestly — a bowl and a
-/// descender really do cover the lower half of a cell the way a lit ledge does —
-/// but a mark that is busy being a word cannot also be a piece of a surface. So
-/// the candidates are the marks that carry a direction and nothing else: every
-/// punctuation character, `0` for a round blob, and the upper-case letters drawn
-/// as bare strokes. Nothing here spells anything, and every slope, corner and
-/// weight the matcher needs is still on offer.
-const MARKS: &[u8] = b"!\"#$%&'()*+,-./:;<=>?@[\\]^_`{|}~0AHIJKLMNTVWXYZ";
+/// The full range put `g`, `j`, `m`, `p`, `q` and `w` around the outline, and
+/// what the eye does with a row of lowercase letters is read it. Dropping the
+/// lower case left `J`, `L`, `T`, `V`, `Y` and `Z`, which read as letters just as
+/// readily, and `[`, `{`, `&` and `$`, which read as punctuation somebody typed.
+/// They all win on ink statistics honestly — a descender really does cover the
+/// lower half of a cell the way a lit ledge does — but a mark that is busy being
+/// a word cannot also be a piece of an edge.
+///
+/// So: the strokes, in every direction an outline can run, and the ramp's own
+/// weights for where the edge is a thick one. Nothing here spells anything, and
+/// nothing is left that would draw the eye to a corner of the picture for a
+/// reason the model does not have.
+const MARKS: &[u8] = b"'`,.:;-_~^\"!|/\\()<>=+*#%@";
 
 /// How much the amount of light in a cell counts against where in the cell it
 /// falls, when the two disagree.
@@ -224,7 +227,7 @@ impl Alphabet {
     /// looks like. Taking each side's own level out first and comparing what is
     /// left as directions puts shape on a scale of its own, and leaves the level
     /// question to be asked once, plainly, against a [`Template::weight`].
-    /// Scoring all ninety-four is most of what a frame costs, and almost all of
+    /// Scoring every candidate is most of what a frame costs, and almost all of
     /// it is wasted: `alignment` is a dot product of two unit vectors, so
     /// `1 - alignment` is never negative and the level term alone is already a
     /// lower bound on a candidate's score. Templates run lightest to heaviest,

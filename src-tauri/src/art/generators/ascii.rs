@@ -684,7 +684,7 @@ impl Surface {
                             .copy_from_slice(&self.shade[from..from + CELL_PIXELS_WIDE]);
                     }
                     // Most of a frame is empty background, and matching it
-                    // against ninety-four glyphs to be told it is a space is the
+                    // against the whole alphabet to be told it is a space is the
                     // single biggest cost in here.
                     if covered > 0 {
                         *glyph = ALPHABET.nearest(&cell, covered == CELL_PIXELS);
