@@ -8,7 +8,7 @@ as an MP4, a GIF, a PNG or more text.
 | `loops` | a finished piece that comes back round to where it began |
 | `ascii` | a drawing or a picture lifted into a solid, ink for height |
 | `scene` | a sphere, torus, cube or knot cut from a formula and turned |
-| `media` | a picture or an animation quantised to glyphs |
+| `media` | a drawing, a picture or an animation read flat as glyphs |
 | `gen2d` | a flow field drawn in pixels and read back as glyphs |
 
 The renderers `ascii` borrows from all start with a mesh somebody modelled. It
@@ -137,6 +137,16 @@ strokes with a rasteriser; both then hand the pixels to the same reader, which i
 the matcher above pointed at a picture instead of at a shaded solid. `--marks`
 chooses between them by name, so the same field can come out traced or graded.
 
+`media` takes the same files the lift does, and a drawing is the one it has least
+to do to. It was written as characters already, so it is laid on the grid as
+written — the artist's own `#` and `+`, not the reader's opinion of them — and
+the window sizes the grid from the file rather than from the detail slider. Only
+two things overrule that. Asking anything of the reading (`--marks`, `--invert`,
+`--contrast`) is asking for the drawing to be read rather than shown; and a grid
+too small to hold it has to shrink it, because characters do not. Either way the
+drawing is drawn out as light at the reader's own five by eleven pixels a cell
+and matched back, which is a resampling of the whole of it rather than a crop.
+
 The field is 4D Perlin noise sampled on a *circle* in time rather than along a
 line, so a period arrives back exactly where it started — the trick
 [Bleuje's animations](https://github.com/Bleuje/processing-animations-code) turn
@@ -199,11 +209,15 @@ bun run tauri dev
 
 The toolbar picks the tool; the panel beside the preview is that tool's own
 options and nothing else, with what the export writes at the foot of it. Two of
-the five are in it: the lift, and the flat read of the same picture. The three
-that bring their own subject are not, because a formula turning on its own is a
-poor thing to open an app on — nothing on screen was asked for, and the tool
-somebody came here to use was three tabs along. They are still in the registry,
-and the command line asks for them by name.
+the five are in it: the lift, and the flat read of the same file. The three that
+bring their own subject are not, because a formula turning on its own is a poor
+thing to open an app on — nothing on screen was asked for, and the tool somebody
+came here to use was three tabs along. They are still in the registry, and the
+command line asks for them by name.
+
+The file is opened once and both tools read it, because it is the same file:
+open a drawing, see what the glyphs make of it flat, then lift it. Nothing is
+opened twice to be looked at twice.
 
 The window opens on the lift, on a drawing that ships with it, so there is
 something to turn before anything has been opened.
@@ -272,7 +286,7 @@ And its own on top:
 | `scene` | `--shape` | `sphere`, `torus`, `cube` or `knot` | `torus` |
 | | `--steps` | segments around the form | `64` |
 | | `--thickness` | the tube's reach, against the body's | `0.42` |
-| `media` | *(first word)* | the picture or animation to read | |
+| `media` | *(first word)* | the drawing, picture or animation to read, or `--text` for one inline | |
 | | `--fit` | `contain` to letterbox it, `cover` to crop it | `contain` |
 | `gen2d` | `--style` | `flow` for strokes, `noise` for tone | `flow` |
 | | `--lines` `--steps` | how many strokes, and how far each is traced | `640` `120` |
