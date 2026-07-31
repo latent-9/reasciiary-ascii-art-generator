@@ -8,8 +8,11 @@
 //! - `media`  — a frame of an image or video, quantised to glyphs. Port of
 //!   `AsciiMedia.swift`.
 //! - `gen2d`  — flow fields and noise, drawn with `tiny-skia`. New.
+//! - `loops`  — finished pieces, each one an animation that closes. New.
 
 pub mod ascii;
 pub mod gen2d;
+pub mod loops;
 pub mod media;
+pub mod paper;
 pub mod scene;

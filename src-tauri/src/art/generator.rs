@@ -66,6 +66,7 @@ pub fn registry() -> &'static [(&'static str, GeneratorFactory)] {
         ("scene", super::generators::scene::build),
         ("media", super::generators::media::build),
         ("gen2d", super::generators::gen2d::build),
+        ("loops", super::generators::loops::build),
     ]
 }
 

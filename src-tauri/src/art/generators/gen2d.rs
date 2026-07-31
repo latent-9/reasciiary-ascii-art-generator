@@ -32,6 +32,8 @@ use crate::art::motion::{circle_noise, scatter, swell};
 use crate::art::params::Params;
 use crate::art::read::{fine_size, Reader};
 
+use super::paper::hue;
+
 /// How wide a circle through the noise one period travels.
 ///
 /// This is the whole trick and it is worth being plain about: a field animated
@@ -71,12 +73,6 @@ impl Style {
             other => Err(format!("`{other}` is not a style — try flow or noise")),
         }
     }
-}
-
-/// A colour that goes round rather than from one end to another, so no stroke
-/// is at the end of the palette and none is left grey.
-fn hue(turn: f64) -> [f32; 3] {
-    [0.0, 0.33, 0.67].map(|offset| (0.5 + 0.5 * (TAU * (turn + offset)).cos()) as f32)
 }
 
 pub struct Flow {
