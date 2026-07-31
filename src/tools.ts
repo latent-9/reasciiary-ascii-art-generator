@@ -203,7 +203,7 @@ export const TOOLS: Tool[] = [
           },
         ],
       },
-      { title: "Motion", controls: [TURNS, STILL] },
+      { title: "Motion", controls: [TURNS, ...MOVEMENT, STILL] },
     ],
   },
   {
