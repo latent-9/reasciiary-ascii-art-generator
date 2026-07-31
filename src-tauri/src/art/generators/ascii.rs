@@ -134,6 +134,12 @@ impl Face {
             (self.a.z + self.b.z + self.c.z + self.d.z) / 4.0,
         )
     }
+
+    /// The four corners as they were given. A piece that declares its own reach
+    /// is promising something about the whole quad, not about where it sits.
+    pub fn corners(self) -> [Vector3; 4] {
+        [self.a, self.b, self.c, self.d]
+    }
 }
 
 /// Yaws the fit is measured at. Fine enough that no corner slips between two of
@@ -350,10 +356,22 @@ impl Solid {
     pub fn from_quads(faces: Vec<Face>) -> Self {
         let radius = faces
             .iter()
-            .flat_map(|face| [face.a, face.b, face.c, face.d])
+            .flat_map(|face| face.corners())
             .map(Vector3::length)
             .fold(0.001, f64::max);
-        Self { faces, bound: Bound::Ball { radius } }
+        Self::from_quads_reaching(faces, radius)
+    }
+
+    /// The same, for a surface that moves.
+    ///
+    /// Measuring is right for a shape given once and then only turned, and wrong
+    /// for one that is rebuilt every frame: the frame is fitted to the solid's
+    /// own reach, so a fit that followed each frame's own extent would have the
+    /// model breathe in and out as the movement travelled over it. `radius` is
+    /// the furthest the surface will *ever* reach, which the piece knows and the
+    /// quads in hand do not.
+    pub fn from_quads_reaching(faces: Vec<Face>, radius: f64) -> Self {
+        Self { faces, bound: Bound::Ball { radius: radius.max(0.001) } }
     }
 
     /// The same solid, fitted as the disc it is rather than as the rectangle it
@@ -774,7 +792,7 @@ impl Renderer {
     /// a drag. The horizontal extent already covers everything the yaw will do,
     /// so this holds steady through a spin — which is the part that has to.
     pub fn frame_aspect(&self) -> f64 {
-        let (_, horizontal, vertical) = self.camera(0.0, self.yaw);
+        let (_, horizontal, vertical) = self.camera(&self.solid.bound, 0.0, self.yaw);
         // A cell is `CELL_ASPECT` times taller than it is wide, so a world box
         // that square needs that many fewer rows than columns to hold it.
         horizontal * CELL_ASPECT / vertical
@@ -805,9 +823,8 @@ impl Renderer {
     /// being held up against the glass. Reaching along the view axis counts too,
     /// and has to: a tall drawing turned on its side puts its length in front of
     /// the eye, and a standoff blind to that would set the eye down inside it.
-    fn camera(&self, pitch: f64, yaw: f64) -> (f64, f64, f64) {
+    fn camera(&self, bound: &Bound, pitch: f64, yaw: f64) -> (f64, f64, f64) {
         let yaws = self.yaws(yaw);
-        let bound = &self.solid.bound;
         let (horizontal, vertical) = bound.extents(pitch, &yaws);
         let eye = EYE_REACH * horizontal.max(vertical).max(bound.depth_reach(pitch, &yaws));
         let (horizontal, vertical) = bound.screen_extents(pitch, &yaws, eye);
@@ -817,8 +834,24 @@ impl Renderer {
     /// `yaw` is passed rather than read from the field so one prepared renderer
     /// can serve every frame of a spin without being rebuilt.
     pub fn canvas_at(&self, columns: usize, rows: usize, yaw: f64) -> AsciiCanvas {
+        self.canvas_of(&self.solid, columns, rows, yaw)
+    }
+
+    /// The same, of a surface handed over for this frame alone.
+    ///
+    /// A solid that only turns is prepared once, but one that *moves* is a new
+    /// set of quads every frame, and rebuilding the renderer around each of them
+    /// would sweep the probe sphere again for a rig that has not changed — see
+    /// [`Self::new`]. The rig is the renderer; the surface is an argument.
+    pub fn canvas_of(
+        &self,
+        solid: &Solid,
+        columns: usize,
+        rows: usize,
+        yaw: f64,
+    ) -> AsciiCanvas {
         let mut canvas = AsciiCanvas::new(columns, rows, false);
-        if columns == 0 || rows == 0 || self.solid.faces.is_empty() {
+        if columns == 0 || rows == 0 || solid.faces.is_empty() {
             return canvas;
         }
 
@@ -828,7 +861,7 @@ impl Renderer {
         let mut surface = Surface::new(columns, rows);
 
         let rotation = Rotation::new(yaw, self.pitch);
-        let (eye, horizontal, vertical) = self.camera(self.pitch, yaw);
+        let (eye, horizontal, vertical) = self.camera(&solid.bound, self.pitch, yaw);
 
         // A cell is CELL_PIXELS_TALL / CELL_PIXELS_WIDE = CELL_ASPECT times
         // taller than it is wide, which is exactly how much taller than wide the
@@ -848,8 +881,8 @@ impl Renderer {
             Vector3::new(center_x + spun.x * converge, center_y - spun.y * converge, spun.z)
         };
 
-        let depth_extent = self.solid.bound.depth_extent(yaw, self.pitch);
-        for face in &self.solid.faces {
+        let depth_extent = solid.bound.depth_extent(yaw, self.pitch);
+        for face in &solid.faces {
             let normal = rotation.apply(face.normal);
             let tone = self.tone(normal, face.openness, depth_extent);
 
