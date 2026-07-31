@@ -4,6 +4,7 @@ pub mod repl;
 use std::collections::HashMap;
 
 use rayon::prelude::*;
+use tauri::Manager;
 
 use art::canvas::AsciiColor;
 use art::export::{self, Format, Settings};
@@ -254,6 +255,23 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
+        .setup(|app| {
+            // Started from a shell rather than from the Dock, the window can
+            // arrive minimised, and nothing else in the app would ever bring it
+            // back: what the machine shows is a menu bar and no window, which
+            // cannot be told apart from a launch that died. The one thing that
+            // is certain here is that somebody has just asked for this, so it is
+            // raised rather than hoped for.
+            //
+            // Failing to raise a window is not a reason to refuse to start, and
+            // an error out of `setup` aborts the launch, so these are dropped.
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.unminimize();
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![preview, plan, sequence, render_art])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
