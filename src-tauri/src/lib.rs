@@ -139,7 +139,7 @@ async fn plan(request: Request) -> Result<Plan, String> {
             seconds,
             frame: match &generator {
                 Generator::Glyph(generator) => generator.frame_aspect(),
-                Generator::Pixel(_) => None,
+                Generator::Pixel(generator) => generator.frame_aspect(),
             },
             grid: match &generator {
                 Generator::Glyph(generator) => generator.natural_grid(),

@@ -51,6 +51,18 @@ pub trait PixelGenerator: Send + Sync {
     fn loop_duration(&self) -> Option<f64> {
         None
     }
+
+    /// The same question [`GlyphGenerator::frame_aspect`] answers, asked of a
+    /// tool that never sees a character.
+    ///
+    /// It is still asked in columns per row, because the grid is what an export
+    /// is sized from whichever kind of tool filled it: the window shapes the
+    /// grid from this and the exporter turns that grid into pixels. A picture
+    /// that wants to be square asks for as many columns per row as a cell is
+    /// tall, and lands square.
+    fn frame_aspect(&self) -> Option<f64> {
+        None
+    }
 }
 
 pub enum Generator {
