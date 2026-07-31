@@ -1,13 +1,22 @@
 # Asciiary
 
-Turns a flat ASCII drawing into a solid you can turn, light and record.
+Five tools that end in the same place: a grid of characters, lit, and written out
+as an MP4, a GIF, a PNG or more text.
 
-The renderers this borrows from all start with a mesh somebody modelled. This
-starts with a text file, so it needs one rule they do not: what the third
-dimension of a drawing actually *is*. The rule is ink. A glyph that fills more of
-its cell stands taller — `@` rises, `.` barely lifts, a space is a hole — and the
-result is lit, projected back onto a character grid, and written out as an MP4,
-a GIF, a PNG or more text.
+| Tool | |
+| --- | --- |
+| `ascii` | a `.txt` drawing lifted into a solid, ink for height |
+| `wave` | a travelling relief a formula fills |
+| `scene` | a sphere, torus, cube or knot cut from a formula and turned |
+| `media` | a picture or an animation quantised to glyphs |
+| `gen2d` | a flow field drawn in pixels and read back as glyphs |
+
+The renderers the first three borrow from all start with a mesh somebody
+modelled. `ascii` starts with a text file, so it needs one rule they do not: what
+the third dimension of a drawing actually *is*. The rule is ink. A glyph that
+fills more of its cell stands taller — `@` rises, `.` barely lifts, a space is a
+hole — and the result is lit, projected back onto a character grid, and written
+out.
 
 ## What the solid is
 
@@ -19,6 +28,10 @@ quarter it *is* the picture, so half of every spin arrived as a featureless mass
 however carefully the front had been lit. Struck through, there is no angle with
 nothing to show, at the price of the drawing being open work: every space in it
 is a hole clean through.
+
+`wave` fills the same kind of heightfield from a formula instead of from a file,
+and `scene` skips the heightfield entirely — it hands the same renderer the quads
+a formula cuts, so a torus is a torus rather than a relief of one.
 
 ## Where the shade comes from
 
@@ -55,9 +68,9 @@ The eye stands off by a multiple of the solid's own reach. Under a parallel
 camera a face keeps its size however far away it is, so the two ends of a turning
 slab are drawn identically and nothing in the picture says which one is nearer —
 a spin reads as a shape shearing about on the page rather than as a body turning
-in space. The frame is fitted by carrying the bounding box's own corners through
-that same projection and sweeping them over a whole turn, so the model is drawn
-as large as it can be without breathing as it spins.
+in space. The frame is fitted by carrying the solid's own hull through that same
+projection and sweeping it over a whole turn, so the model is drawn as large as
+it can be without breathing as it spins.
 
 ## Choosing a character
 
@@ -83,6 +96,19 @@ as noise. The silhouette is matched against strokes for the same reason: a `W` o
 a `J` may fit an edge best by least squares, but what the eye does with a row of
 letters is read it.
 
+## Reading a picture back
+
+`media` and `gen2d` model nothing. One resamples a file and the other draws
+strokes with a rasteriser; both then hand the pixels to the same reader, which is
+the matcher above pointed at a picture instead of at a shaded solid. `--marks`
+chooses between them by name, so the same field can come out traced or graded.
+
+The field is 4D Perlin noise sampled on a *circle* in time rather than along a
+line, so a period arrives back exactly where it started — the trick
+[Bleuje's animations](https://github.com/Bleuje/processing-animations-code) turn
+on. Each stroke also carries its own offset into that period and fades in and out
+at both ends of it, so no frame is the one where every line restarts at once.
+
 ## Running it
 
 ```sh
@@ -90,21 +116,26 @@ bun install
 bun run tauri dev
 ```
 
-Open a drawing, or press **Sample** for one that ships with the window. Drag the
-preview to turn the solid, scroll to zoom, double-click to face it again. Four
-sliders carry the rest: how far the ink stands out, how many cells the render
-gets, and how many turns over how many seconds.
+The toolbar picks the tool; the panel beside the preview is that tool's own
+options and nothing else, with what the export writes at the foot of it. A tool
+that needs a file says so in the toolbar — `ascii` opens on a drawing that ships
+with the window, so there is something to turn before anything is opened.
 
-Three schemes sit above the preview, and the swatch beside them recolours the
-solid itself to anything — the scheme keeps the paper and the window's own text,
-so a green object on black cannot take the controls with it. Nothing re-renders
-for a colour: the frames are characters, so it costs a CSS property until an
-export reads it.
+Drag the preview to turn a solid, scroll to zoom, double-click to face it again.
+Each tool keeps its own angle, so turning the torus and then coming back to the
+drawing finds it where it was left.
+
+Three schemes sit in the toolbar, and the swatch beside them recolours the object
+itself to anything — the scheme keeps the paper and the window's own text, so a
+green object on black cannot take the controls with it. Nothing re-renders for a
+colour: the frames are characters, so it costs a CSS property until an export
+reads it.
 
 The preview does not chase the spin a frame at a time. One loop is rendered in
 full, then played from memory at the rate that covers it exactly once, so what
 the window shows is the animation an export writes rather than an approximation
-of it that stutters when the machine is busy.
+of it that stutters when the machine is busy. A single frame is drawn first so a
+tool that takes a while over a whole loop still answers immediately.
 
 `ffmpeg` has to be installed for GIF and MP4; PNG and TXT need nothing.
 
@@ -118,52 +149,85 @@ bundled app inherits almost no PATH from Finder, so a copy under
 
 ## The command line
 
-The same pipeline, driven by a typed line:
+The same pipeline, driven by a typed line. The whole line is one argument, quoted
+— the `>` belongs to the command language rather than to the shell:
 
 ```sh
-cargo run --bin asciiary -- ascii logo.txt --depth 12 --spin 2 > out.mp4
+cargo run --bin asciiary -- "ascii logo.txt --depth 12 --spin 2 > out.mp4"
 ```
 
-A line is a source, the filters it flows through, and where the result lands.
-The extension after `>` picks the format.
+A line is a source, the filters it flows through, and where the result lands. The
+extension after `>` picks the format. The language carries the `|` and the
+registry behind it is wired up, but nothing is in it yet, so every line is a
+source and an output for now.
 
-```text
-ascii logo.txt --depth 12 | crt --curve 0.2 > out.mp4
-```
+Every tool takes these, whatever it draws:
 
 | Flag | | Default |
 | --- | --- | --- |
-| `--depth` | how far the heaviest glyph stands out, in cell widths | `8` |
-| `--zoom` | | `0.92` |
-| `--yaw` `--pitch` | degrees | `34` `29` |
-| `--spin` | radians a second, or `--still` for no motion | `1.2` |
 | `--duration` `--fps` | how long the file runs, and how smoothly | `4` `20` |
 | `--columns` `--rows` | the character grid | `160` `48` |
 | `--scale` | pixels per point | `2` |
 | `--ink` `--paper` | the object and what is behind it, as hex | `#e7e7e7` `#0c0c0e` |
 
-An animated export is rounded to a whole number of turns so it ends where it
-began, which is what lets a GIF loop without a seam. The window shows the turn
-count it landed on.
+And its own on top:
+
+| Tool | Flag | | Default |
+| --- | --- | --- | --- |
+| `ascii` | *(first word)* | the `.txt` to lift, or `--text` for one inline | |
+| | `--depth` | how far the heaviest glyph stands out, in cell widths | `8` |
+| `wave` | `--cells` | how fine the relief is sampled | `96` |
+| | `--depth` | how far the crests stand out | `9` |
+| | `--rings` `--arms` | how many of each the formula lays down | `3` `2` |
+| | `--turns` | turns of the camera over one loop | `0` |
+| `scene` | `--shape` | `sphere`, `torus`, `cube` or `knot` | `torus` |
+| | `--steps` | segments around the form | `64` |
+| | `--thickness` | the tube's reach, against the body's | `0.42` |
+| `media` | *(first word)* | the picture or animation to read | |
+| | `--fit` | `contain` to letterbox it, `cover` to crop it | `contain` |
+| `gen2d` | `--style` | `flow` for strokes, `noise` for tone | `flow` |
+| | `--lines` `--steps` | how many strokes, and how far each is traced | `640` `120` |
+| | `--grain` `--swirl` | how fine the field is, and how hard it turns | `1.3` `1.0` |
+| | `--seed` | which field | `7` |
+
+A tool that turns takes `--yaw` `--pitch` `--zoom` and either `--spin`, in
+radians a second, or `--still` for none. `wave` and `gen2d` take `--period`
+instead: how many seconds one loop lasts.
+
+`media` and `gen2d` both take the reading:
+
+| Flag | | Default |
+| --- | --- | --- |
+| `--marks` | `match`, `shades`, `detailed` or `ink` | `match` |
+| `--contrast` | opened about the middle rather than the floor | `1` |
+| `--color` | keep the source's own colour, a cell at a time | off |
+| `--invert` | swap which half of the picture is background | off |
+
+An animated export is rounded to a whole number of loops so it ends where it
+began, which is what lets a GIF loop without a seam. The window shows the count
+it landed on.
 
 ## Layout
 
 ```text
-src/                 the window: one panel, one preview, three schemes and a tint
+src/
+  tools.ts           what each tool takes; the panel is built from it
+  main.ts            the window
 src-tauri/src/
   lib.rs             the Tauri commands the window calls
   repl/              the command language behind the typed line
   art/
-    generators/      tools that produce a frame — `ascii` is the 3D lift
-    filters/         post-processing, glyph domain and pixel domain
+    generators/      the five tools
+    filters/         post-processing — the seam is cut, nothing fills it yet
+    read.rs          a picture read back as glyphs, shared by two tools
     canvas.rs        the character grid, and the ink ramp heights are read from
     glyphs.rs        which character a shaded cell comes out as
     paint.rs         grid to pixels
     export.rs        ffmpeg, and the numbers behind each argument
 ```
 
-Adding a tool is one line in `generator::registry`, and a filter is one line in
-`filter::registry`.
+Adding a tool is one line in `generator::registry` and an entry in `TOOLS`; a
+filter is one line in `filter::registry`.
 
 The font is [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono), under
 the SIL Open Font License — see `src-tauri/assets/OFL.txt`.
