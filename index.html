@@ -9,70 +9,36 @@
   </head>
 
   <body>
-    <div class="titlebar" data-tauri-drag-region></div>
+    <!-- The window's own title bar is drawn by the app, so the toolbar is what
+         the traffic lights sit in and what the window is dragged by. -->
+    <header class="toolbar" data-tauri-drag-region>
+      <div class="lights" data-tauri-drag-region></div>
+      <div class="picker" id="tools"></div>
+      <div class="spacer" data-tauri-drag-region></div>
+      <button class="chip" id="open">Open…</button>
+      <div class="themes" id="themes"></div>
+      <label class="tint" for="tint" title="The colour the drawing comes out in">
+        <input type="color" id="tint" value="#0b0b0b" />
+      </label>
+      <button class="chip filled" id="render">Render</button>
+    </header>
 
     <div class="app">
-      <aside class="panel">
-        <div class="brand">asciiary</div>
-
-        <div class="panel-scroll">
-        <section>
-          <h2>Drawing</h2>
-          <div class="segmented">
-            <button id="open">Open…</button>
-            <button id="sample">Sample</button>
-          </div>
-          <div class="file" id="file">no drawing yet</div>
-        </section>
-
-        <section>
-          <h2>Solid</h2>
-          <label>Depth<output id="depth-value">8</output></label>
-          <input type="range" id="depth" min="1" max="40" step="1" value="8" />
-          <label>Detail<output id="detail-value">160</output></label>
-          <input type="range" id="detail" min="60" max="240" step="4" value="160" />
-        </section>
-
-        <section>
-          <h2>Motion</h2>
-          <div class="segmented" id="motion">
-            <button data-motion="spin" class="on">Spin</button>
-            <button data-motion="still">Still</button>
-          </div>
-          <label>Turns<output id="turns-value">2</output></label>
-          <input type="range" id="turns" min="1" max="8" step="1" value="2" />
-          <label>Seconds<output id="seconds-value">4</output></label>
-          <input type="range" id="seconds" min="1" max="30" step="1" value="4" />
-        </section>
-
-        <section>
-          <h2>Format</h2>
-          <div class="segmented" id="format">
-            <button data-format="mp4" class="on">MP4</button>
-            <button data-format="gif">GIF</button>
-            <button data-format="png">PNG</button>
-            <button data-format="txt">TXT</button>
-          </div>
-          <div class="hint" id="hint"></div>
-        </section>
-        </div>
-
-        <div class="panel-footer">
-          <button class="wide primary" id="render">Render</button>
-          <div class="status" id="status"></div>
-        </div>
-      </aside>
-
       <main class="stage">
-        <div class="bar">
-          <div class="themes" id="themes"></div>
-          <label class="tint" for="tint">
-            Colour<input type="color" id="tint" value="#0b0b0b" />
-          </label>
-          <div class="hint" id="view">drag to turn · scroll to zoom · double-click to reset</div>
-        </div>
         <div class="screen"><pre id="preview"></pre></div>
       </main>
+
+      <aside class="inspector">
+        <p class="blurb" id="blurb"></p>
+        <div class="options" id="options"></div>
+      </aside>
     </div>
+
+    <footer class="statusbar">
+      <span class="file" id="file"></span>
+      <span class="spacer"></span>
+      <span class="status" id="status"></span>
+      <span class="hint" id="hint"></span>
+    </footer>
   </body>
 </html>

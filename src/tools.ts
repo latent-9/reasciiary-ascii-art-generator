@@ -21,7 +21,16 @@ export type Control =
       step: number;
       value: number;
     }
-  | { kind: "choice"; flag: string; label: string; value: string; options: string[] }
+  | {
+      kind: "choice";
+      flag: string;
+      label: string;
+      value: string;
+      options: string[];
+      /// Set where the options are initials rather than words, so `mp4` is
+      /// offered as MP4 and not as Mp4.
+      caps?: boolean;
+    }
   | { kind: "switch"; flag: string; label: string; value: boolean };
 
 /// Controls that belong together, under a heading.
@@ -224,13 +233,13 @@ export const TOOLS: Tool[] = [
   },
 ];
 
-/// The defaults a tool starts on, as the strings a flag carries.
+/// The values a set of groups starts on, as the strings a flag carries.
 ///
 /// A switch that is off is absent rather than `"false"`: the backend asks
 /// whether a flag is set, so sending one at all would turn it on.
-export function defaults(tool: Tool): Record<string, string> {
+export function defaults(groups: Group[]): Record<string, string> {
   const values: Record<string, string> = {};
-  for (const group of tool.groups) {
+  for (const group of groups) {
     for (const control of group.controls) {
       if (control.kind === "switch") {
         if (control.value) values[control.flag] = "";

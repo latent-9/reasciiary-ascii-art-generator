@@ -1,6 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import { open, save } from "@tauri-apps/plugin-dialog";
 
+import { defaults, TOOLS } from "./tools";
+import type { Camera, Control, Group, Tool } from "./tools";
+
 /// A scheme is the two colours the render is actually made of, and the window
 /// is dressed in them so what is on screen is what lands in the file. There
 /// were six terminal palettes here, which coloured the chrome and nothing else
@@ -16,6 +19,25 @@ const THEMES: Theme[] = [
   { name: "Bone", ink: "#f2e3bd", paper: "#0a0908" },
 ];
 
+/// What the export writes, which is the same question whatever tool answered
+/// it — so it is one group at the foot of the panel rather than a copy in each
+/// of five tables.
+const OUTPUT: Group = {
+  title: "Output",
+  controls: [
+    { kind: "range", flag: "detail", label: "Detail", min: 60, max: 240, step: 4, value: 160 },
+    { kind: "range", flag: "duration", label: "Length", min: 1, max: 30, step: 1, value: 4 },
+    {
+      kind: "choice",
+      flag: "format",
+      label: "File",
+      value: "mp4",
+      options: ["mp4", "gif", "png", "txt"],
+      caps: true,
+    },
+  ],
+};
+
 const element = <T extends HTMLElement>(id: string) =>
   document.getElementById(id) as T;
 
@@ -23,51 +45,70 @@ const preview = element<HTMLPreElement>("preview");
 const screen = document.querySelector<HTMLDivElement>(".screen")!;
 const status = element("status");
 const hint = element("hint");
+const blurb = element("blurb");
+const options = element("options");
 const fileLabel = element("file");
+const openButton = element<HTMLButtonElement>("open");
 const renderButton = element<HTMLButtonElement>("render");
 
-const SLIDERS = ["depth", "detail", "turns", "seconds"] as const;
-type SliderName = (typeof SLIDERS)[number];
+/// Everything about a tool that survives switching away from it.
+///
+/// Kept per tool rather than in one pile, so turning the solid, opening a
+/// picture and then coming back finds the solid at the angle it was left at.
+type Session = {
+  values: Record<string, string>;
+  file: string | null;
+  /// A drawing carried inline instead of read from a path — the built-in
+  /// sample, which is what the ascii tool opens on.
+  text: string | null;
+  camera: Camera;
+};
 
-/// Graded ink so the heightfield is obvious the moment the app opens: `@` rises,
-/// `.` barely lifts.
-const SAMPLE = [
-  "        @        ",
-  "       @@@       ",
-  "      @@#@@      ",
-  "     @@###@@     ",
-  "    @@##+##@@    ",
-  "   @@##+++##@@   ",
-  "  @@##+++++##@@  ",
-  " @@##+++...+##@@ ",
-  "  @@##+++++##@@  ",
-  "   @@##+++##@@   ",
-  "    @@##+##@@    ",
-  "     @@###@@     ",
-  "      @@#@@      ",
-  "       @@@       ",
-  "        @        ",
-].join("\n");
+const sessions = new Map<string, Session>();
 
-/// Where the camera starts, and what a double-click on the preview puts back.
-const HOME = { yaw: 34, pitch: 29, zoom: 0.92 };
+function session(tool: Tool = state.tool): Session {
+  const found = sessions.get(tool.name);
+  if (found) return found;
+  const fresh: Session = {
+    values: defaults(tool.groups),
+    file: null,
+    text: tool.source?.sample ?? null,
+    camera: { ...(tool.camera ?? { yaw: 0, pitch: 0, zoom: 1 }) },
+  };
+  sessions.set(tool.name, fresh);
+  return fresh;
+}
 
 const state = {
-  file: null as string | null,
-  text: null as string | null,
-  still: false,
-  format: "mp4",
+  tool: TOOLS[0],
+  /// The output group's values, which belong to the window rather than to any
+  /// one tool: a choice of MP4 is a choice about exporting, and following the
+  /// tool around would mean making it five times.
+  output: defaults([OUTPUT]),
   theme: THEMES[0],
   /// What the drawing is rendered in. A scheme proposes one and this holds it
   /// until the swatch is used, after which it is whatever was picked.
   object: THEMES[0].ink,
-  ...HOME,
 };
 
-const hasDrawing = () => state.file !== null || state.text !== null;
+/// A tool that reads a file has nothing to draw until it has one.
+const ready = () => {
+  const tool = state.tool;
+  return !tool.source || session().file !== null || session().text !== null;
+};
 
-function slider(name: SliderName): number {
-  return Number(element<HTMLInputElement>(name).value);
+const number = (flag: string) => Number(read(flag));
+
+/// Which side of the panel a flag's value is kept on. Nothing at all is what a
+/// switch that is off reads as, so the answer can be missing.
+function read(flag: string): string | undefined {
+  return flag in state.output ? state.output[flag] : session().values[flag];
+}
+
+function write(flag: string, value: string | null) {
+  const into = flag in state.output ? state.output : session().values;
+  if (value === null) delete into[flag];
+  else into[flag] = value;
 }
 
 /// One number settles the whole grid: how many cells the render gets. What
@@ -80,7 +121,7 @@ function slider(name: SliderName): number {
 /// render: a portrait subject gets a portrait grid of the same size, not one
 /// three times larger.
 function grid() {
-  const detail = slider("detail");
+  const detail = number("detail");
   const cells = (detail * detail) / 4;
   const aspect = plan.frame ?? 16 / 9;
   const columns = clamp(Math.round(Math.sqrt(cells * aspect)), 20, 400);
@@ -114,7 +155,11 @@ function buildThemes() {
   const container = element("themes");
   THEMES.forEach((theme, index) => {
     const button = document.createElement("button");
-    button.innerHTML = `<span class="swatch" style="background:${theme.ink};outline-color:${theme.paper}"></span>${theme.name}`;
+    button.className = "swatch";
+    button.title = theme.name;
+    // Split down the middle rather than filled: a scheme is two colours, and a
+    // dot showing only its ink says nothing about what that ink lands on.
+    button.style.background = `linear-gradient(135deg, ${theme.ink} 0 50%, ${theme.paper} 50% 100%)`;
     if (index === 0) button.classList.add("on");
     button.addEventListener("click", () => {
       container.querySelectorAll("button").forEach((b) => b.classList.remove("on"));
@@ -125,30 +170,190 @@ function buildThemes() {
   });
 }
 
+/* The panel */
+
+const title = (word: string) => word[0].toUpperCase() + word.slice(1);
+
+/// The tool's own groups, plus the two rows that are nobody's tool flag: the
+/// turn count a spin rate is worked out from, and what the export writes.
+function panelGroups(tool: Tool): Group[] {
+  const turns = tool.turns;
+  const groups = tool.groups.map((group) =>
+    group.title === "Motion" && turns
+      ? {
+          title: group.title,
+          controls: [
+            {
+              kind: "range" as const,
+              flag: "turns",
+              label: "Turns",
+              min: 0,
+              max: turns.max,
+              step: 0.25,
+              value: turns.value,
+            },
+            ...group.controls,
+          ],
+        }
+      : group,
+  );
+  return [...groups, OUTPUT];
+}
+
+function row(label: string, control: HTMLElement) {
+  const line = document.createElement("div");
+  line.className = "row";
+  const name = document.createElement("span");
+  name.textContent = label;
+  line.append(name, control);
+  return line;
+}
+
+function buildControl(control: Control): HTMLElement {
+  const holder = document.createElement("div");
+  holder.className = "control";
+
+  if (control.kind === "range") {
+    const value = document.createElement("output");
+    const input = document.createElement("input");
+    input.type = "range";
+    input.min = String(control.min);
+    input.max = String(control.max);
+    input.step = String(control.step);
+    input.value = read(control.flag) ?? String(control.value);
+    const show = () => {
+      value.textContent = input.value;
+    };
+    show();
+    input.addEventListener("input", () => {
+      show();
+      write(control.flag, input.value);
+      changed(control.flag);
+    });
+    holder.append(row(control.label, value), input);
+    return holder;
+  }
+
+  if (control.kind === "choice") {
+    const popup = document.createElement("span");
+    popup.className = "popup";
+    const select = document.createElement("select");
+    for (const option of control.options) {
+      const item = document.createElement("option");
+      item.value = option;
+      item.textContent = control.caps ? option.toUpperCase() : title(option);
+      select.append(item);
+    }
+    select.value = read(control.flag) ?? control.value;
+    select.addEventListener("change", () => {
+      write(control.flag, select.value);
+      changed(control.flag);
+    });
+    popup.append(select);
+    holder.append(row(control.label, popup));
+    return holder;
+  }
+
+  const toggle = document.createElement("label");
+  toggle.className = "toggle";
+  const box = document.createElement("input");
+  box.type = "checkbox";
+  box.checked = read(control.flag) !== undefined;
+  box.addEventListener("change", () => {
+    // A flag that carries no value is on by being there at all, so switching it
+    // off means taking it out rather than setting it to something falsy.
+    write(control.flag, box.checked ? "" : null);
+    changed(control.flag);
+  });
+  toggle.append(box, document.createElement("i"));
+  holder.append(row(control.label, toggle));
+  return holder;
+}
+
+function buildPanel() {
+  const tool = state.tool;
+  blurb.textContent = tool.blurb;
+  options.replaceChildren(
+    ...panelGroups(tool).map((group) => {
+      const section = document.createElement("section");
+      const heading = document.createElement("h2");
+      heading.textContent = group.title;
+      section.append(heading, ...group.controls.map(buildControl));
+      return section;
+    }),
+  );
+}
+
+function buildTools() {
+  const container = element("tools");
+  TOOLS.forEach((tool, index) => {
+    const button = document.createElement("button");
+    button.textContent = tool.label;
+    if (index === 0) button.classList.add("on");
+    button.addEventListener("click", () => {
+      if (state.tool === tool) return;
+      container.querySelectorAll("button").forEach((b) => b.classList.remove("on"));
+      button.classList.add("on");
+      pickTool(tool);
+    });
+    container.append(button);
+  });
+}
+
+async function pickTool(tool: Tool) {
+  state.tool = tool;
+  buildPanel();
+  openButton.hidden = tool.source === undefined;
+  if (tool.source) openButton.textContent = `Open ${tool.source.label.toLowerCase()}…`;
+  screen.classList.toggle("still", tool.camera === undefined);
+  showSource();
+  updateHint();
+  if (!ready()) {
+    film = { frames: [`open a ${tool.source?.label.toLowerCase()} to begin`], fps: 1 };
+    shown = -1;
+    fitPreview();
+    return;
+  }
+  // Nothing of the tool that was on screen a moment ago survives the switch,
+  // however long the new one takes to arrive.
+  film = { frames: [], fps: 1 };
+  preview.textContent = "";
+  await settle();
+}
+
+/* Talking to the backend */
+
 function request(withOutput?: string) {
+  const tool = state.tool;
+  const here = session();
+  const seconds = number("duration");
   const { columns, rows } = grid();
-  const seconds = slider("seconds");
-  const flags: Record<string, string> = {
-    depth: String(slider("depth")),
-    zoom: state.zoom.toFixed(3),
-    yaw: String(Math.round(state.yaw)),
-    pitch: String(Math.round(state.pitch)),
-    // The backend turns at radians a second. Whole turns over the clip is the
-    // same number said in the units somebody choosing one actually has in mind,
-    // and it lands on a seamless loop by construction rather than by rounding.
-    spin: ((slider("turns") * 2 * Math.PI) / seconds).toFixed(4),
-    duration: String(seconds),
-    columns: String(columns),
-    rows: String(rows),
-    ink: state.object,
-    paper: state.theme.paper,
-  };
-  if (state.still) flags.still = "";
-  if (state.text) flags.text = state.text;
+
+  const flags: Record<string, string> = { ...here.values };
+
+  // The backend turns at radians a second. Whole turns over the clip is the
+  // same number said in the units somebody choosing one actually has in mind,
+  // and it lands on a seamless loop by construction rather than by rounding.
+  if (tool.turns) {
+    flags.spin = ((Number(flags.turns ?? 0) * 2 * Math.PI) / seconds).toFixed(4);
+    delete flags.turns;
+  }
+  if (tool.camera) {
+    flags.yaw = String(Math.round(here.camera.yaw));
+    flags.pitch = String(Math.round(here.camera.pitch));
+    flags.zoom = here.camera.zoom.toFixed(3);
+  }
+
+  flags.columns = String(columns);
+  flags.rows = String(rows);
+  flags.duration = String(seconds);
+  flags.ink = state.object;
+  flags.paper = state.theme.paper;
+  if (here.text) flags.text = here.text;
 
   return {
-    tool: "ascii",
-    positional: state.file && !state.text ? [state.file] : [],
+    tool: tool.name,
+    positional: here.file && !here.text ? [here.file] : [],
     flags,
     output: withOutput ?? null,
   };
@@ -164,7 +369,7 @@ const cell = (name: "advance" | "line") =>
 
 /// Scales the preview so the whole grid is visible.
 function fitPreview() {
-  if (!hasDrawing()) {
+  if (!ready()) {
     preview.style.fontSize = "12px";
     return;
   }
@@ -192,11 +397,10 @@ let pending = false;
 
 /// Re-asks the backend what an export would do, and reshapes the grid to suit.
 async function refreshPlan() {
-  if (!hasDrawing()) return;
   try {
     plan = await invoke<Plan>("plan", { request: request() });
   } catch {
-    plan = { period: null, loops: 1, seconds: slider("seconds"), frame: null };
+    plan = { period: null, loops: 1, seconds: number("duration"), frame: null };
   }
   updateHint();
   fitPreview();
@@ -211,14 +415,42 @@ let settling: number | undefined;
 
 /// Rebuilds the loop after whatever is being changed stops changing.
 function invalidate() {
-  if (!hasDrawing()) return;
+  if (!ready()) return;
   clearTimeout(settling);
-  settling = setTimeout(loadFilm, SETTLE_MS);
+  settling = setTimeout(settle, SETTLE_MS);
+}
+
+async function settle() {
+  if (!ready()) return;
+  await refreshPlan();
+  // One frame before the whole loop. A field of six hundred strokes takes long
+  // enough to draw a hundred and sixty of them that the pane would otherwise go
+  // on showing the last tool's work for seconds after the panel had changed —
+  // and the first frame is a hundred and sixtieth of that wait.
+  await showFrame();
+  await loadFilm();
+}
+
+/// What a control does beyond carrying its own value.
+///
+/// Detail changes the grid and nothing else, so the preview is refitted at once
+/// rather than after the render; the file format changes neither, so it only
+/// reprints the line at the bottom. Everything else means new frames.
+function changed(flag: string) {
+  if (flag === "detail") fitPreview();
+  updateHint();
+  if (flag !== "format") invalidate();
 }
 
 async function loadFilm() {
-  if (!hasDrawing() || pending) return;
+  if (!ready() || pending) return;
   pending = true;
+  // Long enough on the heavier tools to be worth saying so, and it is the same
+  // line an export reports into, so nothing new has to be found room for.
+  if (!renderButton.disabled) {
+    status.className = "status";
+    status.textContent = "drawing…";
+  }
   try {
     film = await invoke<Film>("sequence", { request: request() });
     shown = -1;
@@ -227,6 +459,7 @@ async function loadFilm() {
     shown = -1;
   } finally {
     pending = false;
+    if (status.textContent === "drawing…") status.textContent = "";
   }
 }
 
@@ -261,7 +494,7 @@ requestAnimationFrame(play);
 /// movement — the loop it would render is one nobody is going to see, because
 /// the next drag event replaces it.
 async function showFrame() {
-  if (!hasDrawing() || pending) return;
+  if (!ready() || pending) return;
   pending = true;
   try {
     const frame = await invoke<string>("preview", { request: request(), time: 0 });
@@ -275,37 +508,29 @@ async function showFrame() {
 }
 
 function updateHint() {
-  if (state.format === "gif" && slider("seconds") > 12) {
-    hint.textContent =
-      "a GIF this long usually lands over X's 15 MB limit — MP4 holds up better past ~12s";
-  } else if (state.format === "txt" || state.format === "png") {
+  const format = state.output.format;
+  if (format === "gif" && number("duration") > 12) {
+    hint.textContent = "a GIF this long usually lands over X's 15 MB limit";
+  } else if (format === "txt" || format === "png") {
     hint.textContent = "a still — only the first frame is written";
   } else {
     const { columns, rows } = grid();
-    hint.textContent = `${columns}×${rows} cells`;
+    hint.textContent = `${columns}×${rows} · ${plan.loops} × ${plan.period?.toFixed(1) ?? number("duration")}s`;
   }
 }
 
-function bindSliders() {
-  for (const name of SLIDERS) {
-    const input = element<HTMLInputElement>(name);
-    const output = element(`${name}-value`);
-    const show = () => {
-      output.textContent = String(slider(name));
-    };
-    show();
-    input.addEventListener("input", () => {
-      show();
-      if (name === "detail") {
-        fitPreview();
-        updateHint();
-      }
-      // Both of these move how fast the export turns, which is what the film is
-      // rendered and played at.
-      if (name === "turns" || name === "seconds") refreshPlan();
-      invalidate();
-    });
+/// The line at bottom left: what is being drawn, and how to frame it.
+function showSource() {
+  const tool = state.tool;
+  const here = session();
+  const parts: string[] = [];
+  if (tool.source) {
+    if (here.file) parts.push(here.file.split("/").pop() ?? here.file);
+    else if (here.text) parts.push("built-in sample");
+    else parts.push(`no ${tool.source.label.toLowerCase()} yet`);
   }
+  if (tool.camera) parts.push("drag to turn · scroll to zoom · double-click to reset");
+  fileLabel.textContent = parts.join("   ·   ");
 }
 
 /// Turning and zooming happen on the preview rather than on three more sliders.
@@ -318,8 +543,10 @@ function bindCamera() {
   let lastX = 0;
   let lastY = 0;
 
+  const turnable = () => ready() && state.tool.camera !== undefined;
+
   screen.addEventListener("pointerdown", (event) => {
-    if (!hasDrawing()) return;
+    if (!turnable()) return;
     dragging = true;
     lastX = event.clientX;
     lastY = event.clientY;
@@ -329,10 +556,11 @@ function bindCamera() {
 
   screen.addEventListener("pointermove", (event) => {
     if (!dragging) return;
+    const camera = session().camera;
     // A quarter degree a pixel: a drag across the pane is most of a full turn,
     // and a few pixels is still a nudge.
-    state.yaw = wrap(state.yaw + (event.clientX - lastX) * 0.25);
-    state.pitch = clamp(state.pitch - (event.clientY - lastY) * 0.25, -90, 90);
+    camera.yaw = wrap(camera.yaw + (event.clientX - lastX) * 0.25);
+    camera.pitch = clamp(camera.pitch - (event.clientY - lastY) * 0.25, -90, 90);
     lastX = event.clientX;
     lastY = event.clientY;
     showFrame();
@@ -352,11 +580,12 @@ function bindCamera() {
   screen.addEventListener(
     "wheel",
     (event) => {
-      if (!hasDrawing()) return;
+      if (!turnable()) return;
       event.preventDefault();
+      const camera = session().camera;
       // Multiplicative, so a notch is the same proportion of the size at every
       // zoom rather than a bigger jump the further out you are.
-      state.zoom = clamp(state.zoom * Math.exp(-event.deltaY * 0.002), 0.25, 4);
+      camera.zoom = clamp(camera.zoom * Math.exp(-event.deltaY * 0.002), 0.25, 4);
       showFrame();
       invalidate();
     },
@@ -364,7 +593,8 @@ function bindCamera() {
   );
 
   screen.addEventListener("dblclick", () => {
-    Object.assign(state, HOME);
+    if (!turnable()) return;
+    Object.assign(session().camera, state.tool.camera);
     invalidate();
   });
 }
@@ -376,53 +606,34 @@ const clamp = (value: number, low: number, high: number) =>
 /// stopping — nothing about the model has a front.
 const wrap = (degrees: number) => ((((degrees + 180) % 360) + 360) % 360) - 180;
 
-function bindSegmented(id: string, onPick: (value: string) => void) {
-  const container = element(id);
-  container.querySelectorAll("button").forEach((button) => {
-    button.addEventListener("click", () => {
-      container.querySelectorAll("button").forEach((b) => b.classList.remove("on"));
-      button.classList.add("on");
-      onPick(button.dataset.motion ?? button.dataset.format ?? "");
-    });
-  });
-}
-
-element("open").addEventListener("click", async () => {
+openButton.addEventListener("click", async () => {
+  const source = state.tool.source;
+  if (!source) return;
   const picked = await open({
     multiple: false,
-    filters: [{ name: "ASCII drawing", extensions: ["txt", "asc", "ans"] }],
+    filters: [{ name: source.label, extensions: source.extensions }],
   });
   if (typeof picked !== "string") return;
-  state.file = picked;
-  state.text = null;
-  await loadDrawing(picked.split("/").pop() ?? picked);
-});
-
-element("sample").addEventListener("click", async () => {
-  state.file = null;
-  state.text = SAMPLE;
-  await loadDrawing("sample diamond");
-});
-
-async function loadDrawing(label: string) {
-  fileLabel.textContent = label;
+  const here = session();
+  here.file = picked;
+  here.text = null;
   status.className = "status";
   status.textContent = "";
-  await refreshPlan();
-  fitPreview();
-  await loadFilm();
-}
+  showSource();
+  await settle();
+});
 
-renderButton.addEventListener("click", async () => {
-  if (!hasDrawing()) {
+async function render() {
+  if (!ready()) {
     status.className = "status error";
-    status.textContent = "open a drawing first";
+    status.textContent = "open something first";
     return;
   }
 
+  const format = state.output.format;
   const target = await save({
-    defaultPath: `asciiary.${state.format}`,
-    filters: [{ name: state.format.toUpperCase(), extensions: [state.format] }],
+    defaultPath: `${state.tool.name}.${format}`,
+    filters: [{ name: format.toUpperCase(), extensions: [format] }],
   });
   if (!target) return;
 
@@ -444,25 +655,24 @@ renderButton.addEventListener("click", async () => {
     clearInterval(ticker);
     renderButton.disabled = false;
   }
+}
+
+renderButton.addEventListener("click", render);
+
+// The shortcut every Mac app renders with.
+window.addEventListener("keydown", (event) => {
+  if (event.metaKey && event.key === "r") {
+    event.preventDefault();
+    if (!renderButton.disabled) render();
+  }
 });
 
-bindSliders();
 bindCamera();
-bindSegmented("motion", (value) => {
-  state.still = value === "still";
-  refreshPlan();
-  invalidate();
-});
-bindSegmented("format", (value) => {
-  state.format = value;
-  updateHint();
-});
+buildTools();
 buildThemes();
 element<HTMLInputElement>("tint").addEventListener("input", (event) => {
   applyObject((event.target as HTMLInputElement).value);
 });
 applyTheme(THEMES[0]);
-updateHint();
 new ResizeObserver(fitPreview).observe(screen);
-fitPreview();
-preview.textContent = "open a drawing to begin";
+pickTool(state.tool);
