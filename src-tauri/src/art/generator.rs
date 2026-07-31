@@ -30,6 +30,18 @@ pub trait GlyphGenerator: Send + Sync {
     fn frame_aspect(&self) -> Option<f64> {
         None
     }
+
+    /// The grid this was already made at, in cells. `None` from a tool that
+    /// draws at whatever size it is asked for, which is nearly all of them.
+    ///
+    /// Only somebody's own drawing has one. It was written at a size, and on a
+    /// larger grid it is a small figure adrift in an empty frame — so the size
+    /// is reported rather than left to a detail slider, which is being asked a
+    /// question the file has already answered. A shape of its own is a stronger
+    /// claim than [`frame_aspect`](Self::frame_aspect) and answers it too.
+    fn natural_grid(&self) -> Option<(usize, usize)> {
+        None
+    }
 }
 
 /// A tool that draws pixels directly, skipping the character grid.

@@ -235,6 +235,15 @@ impl GlyphGenerator for Media {
         let image = &self.frames.first()?.image;
         Some(image.width() as f64 * CELL_ASPECT / image.height().max(1) as f64)
     }
+
+    /// The grid a drawing was written at. A picture has none — every size of it
+    /// is as much the picture as any other — so the answer is only ever the
+    /// drawing's, and it is given whether or not the reading will be redrawn:
+    /// asked for other marks, a drawing is still that drawing at that size.
+    fn natural_grid(&self) -> Option<(usize, usize)> {
+        let drawing = self.drawing.as_ref()?;
+        Some((drawing.columns, drawing.rows))
+    }
 }
 
 /// Every frame the file holds, in order.

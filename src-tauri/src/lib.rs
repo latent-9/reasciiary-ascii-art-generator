@@ -121,6 +121,10 @@ pub struct Plan {
     /// Columns per row for a grid the drawing fills. `null` from a tool with no
     /// shape of its own, which the window reads as "any grid will do".
     frame: Option<f64>,
+    /// Columns and rows a subject was already made at, when it was. `null` from
+    /// anything that draws at the size it is asked for, which is the usual case;
+    /// set, it settles the grid and the detail slider has nothing to say.
+    grid: Option<(usize, usize)>,
 }
 
 #[tauri::command]
@@ -135,6 +139,10 @@ async fn plan(request: Request) -> Result<Plan, String> {
             seconds,
             frame: match &generator {
                 Generator::Glyph(generator) => generator.frame_aspect(),
+                Generator::Pixel(_) => None,
+            },
+            grid: match &generator {
+                Generator::Glyph(generator) => generator.natural_grid(),
                 Generator::Pixel(_) => None,
             },
         })

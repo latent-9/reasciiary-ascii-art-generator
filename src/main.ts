@@ -129,7 +129,17 @@ function write(flag: string, value: string | null) {
 /// frame that follows the drawing from also changing how long it takes to
 /// render: a portrait subject gets a portrait grid of the same size, not one
 /// three times larger.
+///
+/// A subject that was already made at a grid keeps it. Somebody's drawing was
+/// written at a size, and laying it on a larger one leaves it a small figure in
+/// the middle of an empty frame — so the count the slider carries is not asked
+/// for. The bounds still hold: a drawing wider than the window will render is
+/// scaled down to fit like anything else.
 function grid() {
+  if (plan.grid) {
+    const [columns, rows] = plan.grid;
+    return { columns: clamp(columns, 20, 400), rows: clamp(rows, 8, 200) };
+  }
   const detail = number("detail");
   const cells = (detail * detail) / 4;
   const aspect = plan.frame ?? 16 / 9;
@@ -368,12 +378,14 @@ type Plan = {
   loops: number;
   seconds: number;
   frame: number | null;
+  /// Columns and rows the subject was made at, when it was made at any.
+  grid: [number, number] | null;
 };
 
 /// One whole loop, already rendered.
 type Film = { frames: string[]; fps: number };
 
-let plan: Plan = { period: null, loops: 1, seconds: 4, frame: null };
+let plan: Plan = { period: null, loops: 1, seconds: 4, frame: null, grid: null };
 let film: Film = { frames: [], fps: 1 };
 let shown = -1;
 
@@ -403,7 +415,7 @@ async function refreshPlan() {
   try {
     answer = await invoke<Plan>("plan", { request: request() });
   } catch {
-    answer = { period: null, loops: 1, seconds: number("duration"), frame: null };
+    answer = { period: null, loops: 1, seconds: number("duration"), frame: null, grid: null };
   }
   if (mark !== subject) return;
   plan = answer;
