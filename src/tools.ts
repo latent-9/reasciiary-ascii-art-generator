@@ -108,6 +108,20 @@ const STILL: Control = { kind: "switch", flag: "still", label: "Hold still", val
 /// at a rate, so every setting of it meets itself at the seam.
 const TURNS: Control = { kind: "range", flag: "turns", label: "Turns", min: 0, max: 8, step: 1, value: 2 };
 
+/// What the surface does on top of the turn, and how hard. Off by default: the
+/// subject is somebody's own drawing or a shape they picked, and warping it
+/// without being asked is not the tool's call to make.
+const MOVEMENT: Control[] = [
+  {
+    kind: "choice",
+    flag: "motion",
+    label: "Moves",
+    value: "none",
+    options: ["none", "ripple", "breathe", "drift"],
+  },
+  { kind: "range", flag: "amount", label: "Strength", min: 0, max: 1, step: 0.05, value: 0.35 },
+];
+
 /// The window opens on whichever tool is first, so the first is the one that
 /// has something to show without being given anything: the pieces bring their
 /// own subject, and every other tool here waits for a file or a formula.
@@ -158,7 +172,7 @@ export const TOOLS: Tool[] = [
         title: "Solid",
         controls: [{ kind: "range", flag: "depth", label: "Depth", min: 1, max: 40, step: 1, value: 8 }],
       },
-      { title: "Motion", controls: [TURNS, STILL] },
+      { title: "Motion", controls: [TURNS, ...MOVEMENT, STILL] },
     ],
   },
   {

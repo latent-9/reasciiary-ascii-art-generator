@@ -17,6 +17,8 @@ use std::f64::consts::TAU;
 
 use noise::{NoiseFn, Perlin};
 
+use super::params::Params;
+
 /// The same curve either side of the middle, steepened by `hardness`.
 ///
 /// Bleuje's easing, and it does something a cosine cannot. A cosine spends most
@@ -86,6 +88,135 @@ pub fn circle_noise(field: &Perlin, x: f64, y: f64, phase: f64, radius: f64) -> 
 pub fn blended_noise(one: &Perlin, other: &Perlin, at: [f64; 3], phase: f64) -> f64 {
     let (around, through) = (TAU * phase).sin_cos();
     one.get(at) * through + other.get(at) * around
+}
+
+/// How many waves a ripple fits between the middle of a surface and its edge.
+///
+/// Few enough that each ring is wide enough to shade across, which is what makes
+/// it read as a surface bending rather than as a texture laid over one.
+const RINGS: f64 = 2.0;
+
+/// What a drift's two fields are opened up to before they are cut off.
+///
+/// Perlin noise spends almost all of its time well inside its own range, so a
+/// field taken as it comes uses about half the swing it was given. Opened up
+/// this far it uses the whole of it, and the little that overshoots is cut off
+/// at the ends, where a surface is at its furthest and standing still anyway.
+const LOUDNESS: f64 = 1.6;
+
+/// What a surface does over a loop, on top of whatever else it is doing.
+///
+/// Three of them and one for none, because a surface that moves has only so many
+/// things it can do that still read as one surface: something can travel across
+/// it, it can rise and fall as a whole, or it can wander. Each says how far to
+/// push at a place, and what pushing means is left to whoever asked — a
+/// heightfield scales its columns by it, a solid slides its corners out along
+/// their own normals.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum Motion {
+    /// The surface as it was given.
+    #[default]
+    None,
+    /// Rings travelling out from the middle.
+    Ripple,
+    /// The whole surface swelling and settling.
+    Breathe,
+    /// Noise wandering over it.
+    Drift,
+}
+
+impl Motion {
+    pub fn named(name: &str) -> Result<Self, String> {
+        match name {
+            "none" => Ok(Self::None),
+            "ripple" => Ok(Self::Ripple),
+            "breathe" => Ok(Self::Breathe),
+            "drift" => Ok(Self::Drift),
+            other => Err(format!(
+                "`{other}` is not a motion — try none, ripple, breathe or drift"
+            )),
+        }
+    }
+}
+
+/// A [`Motion`] with the strength it is applied at and the fields it needs.
+///
+/// The fields are built once and kept: a drift asks two of them a question for
+/// every corner of every frame, and building one per question would cost more
+/// than the surface does.
+pub struct Movement {
+    motion: Motion,
+    amount: f64,
+    one: Perlin,
+    other: Perlin,
+}
+
+impl Movement {
+    /// `amount` is how far the surface is pushed, as a fraction of its own
+    /// reach. Held to nought and one because a heightfield scales by it, and
+    /// anything past one turns a column inside out rather than moving it.
+    pub fn new(motion: Motion, amount: f64, seed: u32) -> Self {
+        Self {
+            motion,
+            amount: amount.clamp(0.0, 1.0),
+            one: Perlin::new(seed),
+            // A second field of its own, not this one read somewhere else: the
+            // circle is drawn between the two, so they have to be independent.
+            other: Perlin::new(seed.wrapping_add(1)),
+        }
+    }
+
+    pub fn from_params(params: &Params) -> Result<Self, String> {
+        Ok(Self::new(
+            Motion::named(params.string("motion").unwrap_or("none"))?,
+            params.f64("amount", 0.35)?,
+            params.seed(7)? as u32,
+        ))
+    }
+
+    /// Whether there is anything to redraw for. A tool asks before it takes on
+    /// the cost of rebuilding its surface every frame.
+    pub fn moves(&self) -> bool {
+        self.motion != Motion::None && self.amount > 0.0
+    }
+
+    /// The furthest this can ever push, as a fraction of the surface's reach.
+    /// A surface that is rebuilt every frame has to be framed for this rather
+    /// than for the frame in hand — see [`crate::art::generators::ascii::Solid`].
+    pub fn amount(&self) -> f64 {
+        if self.moves() {
+            self.amount
+        } else {
+            0.0
+        }
+    }
+
+    /// How far to push at `place`, at `phase` of the loop.
+    ///
+    /// `place` is measured in the surface's own reach, so that the middle is
+    /// nought and an edge is about one either way whether the surface is a
+    /// drawing two hundred cells across or a ball of radius one. Never further
+    /// than [`amount`](Self::amount) in either direction, and exactly the same
+    /// at both ends of the loop.
+    pub fn at(&self, place: [f64; 3], phase: f64) -> f64 {
+        let [x, y, z] = place;
+        let push = match self.motion {
+            Motion::None => 0.0,
+            // Periodic in the phase on its own — a travelling wave arrives back
+            // one whole wave along, which is where it started — so it needs
+            // nothing holding its ends down.
+            Motion::Ripple => {
+                let out = (x * x + y * y + z * z).sqrt();
+                (TAU * (RINGS * out - phase)).sin()
+            }
+            // Out and back over the loop, starting from rest rather than from
+            // the top of the breath: the first frame is then the drawing as it
+            // was written, which is the one somebody recognises.
+            Motion::Breathe => (TAU * phase).sin(),
+            Motion::Drift => LOUDNESS * blended_noise(&self.one, &self.other, place, phase),
+        };
+        self.amount() * push.clamp(-1.0, 1.0)
+    }
 }
 
 #[cfg(test)]
@@ -167,5 +298,96 @@ mod tests {
         let start = blended_noise(&field, &other, [0.3, 0.4, 0.9], 0.0);
         let middle = blended_noise(&field, &other, [0.3, 0.4, 0.9], 0.5);
         assert!((start - middle).abs() > 1e-6, "{start} == {middle}");
+    }
+
+    /// A spread of places over a surface of about unit reach, which is the scale
+    /// [`Movement::at`] asks to be given.
+    fn places() -> Vec<[f64; 3]> {
+        (0..12)
+            .flat_map(|row| {
+                (0..12).map(move |column| {
+                    [column as f64 / 6.0 - 1.0, row as f64 / 6.0 - 1.0, 0.0_f64]
+                })
+            })
+            .collect()
+    }
+
+    const KINDS: [Motion; 3] = [Motion::Ripple, Motion::Breathe, Motion::Drift];
+
+    /// The one thing every motion here has to do, and the only one that cannot
+    /// be seen by looking at a single frame.
+    #[test]
+    fn every_motion_ends_the_loop_where_it_began() {
+        for motion in KINDS {
+            let movement = Movement::new(motion, 0.5, 3);
+            for place in places() {
+                let start = movement.at(place, 0.0);
+                let round = movement.at(place, 1.0);
+                assert!((start - round).abs() < 1e-9, "{motion:?} at {place:?}: {start} != {round}");
+            }
+        }
+    }
+
+    #[test]
+    fn every_motion_has_gone_somewhere_in_between() {
+        for motion in KINDS {
+            let movement = Movement::new(motion, 0.5, 3);
+            let moved = places()
+                .into_iter()
+                .filter(|place| (movement.at(*place, 0.0) - movement.at(*place, 0.27)).abs() > 1e-3)
+                .count();
+            assert!(moved > 100, "{motion:?} moved only {moved} of 144 places");
+        }
+    }
+
+    /// What the strength is worth is that it can be trusted: a surface that is
+    /// rebuilt every frame is framed for the largest it will ever be, before any
+    /// of those frames exist.
+    #[test]
+    fn no_motion_pushes_further_than_it_was_allowed() {
+        for motion in KINDS {
+            let movement = Movement::new(motion, 0.4, 3);
+            for place in places() {
+                for step in 0..40 {
+                    let push = movement.at(place, step as f64 / 40.0);
+                    assert!(push.abs() <= 0.4 + 1e-12, "{motion:?} pushed {push}");
+                }
+            }
+        }
+    }
+
+    /// And that it is worth having at all: a strength the surface barely uses
+    /// would make the slider a lie.
+    #[test]
+    fn every_motion_uses_most_of_the_strength_it_was_given() {
+        for motion in KINDS {
+            let movement = Movement::new(motion, 0.4, 3);
+            let hardest = places()
+                .into_iter()
+                .flat_map(|place| (0..40).map(move |step| (place, step)))
+                .map(|(place, step)| movement.at(place, step as f64 / 40.0).abs())
+                .fold(0.0, f64::max);
+            assert!(hardest > 0.4 * 0.9, "{motion:?} reaches only {hardest} of 0.4");
+        }
+    }
+
+    /// Nothing asked for is nothing done, whatever the strength says, and a
+    /// strength of nothing is the same. Both are what a tool checks before it
+    /// takes on rebuilding its surface for every frame.
+    #[test]
+    fn a_surface_nobody_asked_to_move_stays_where_it_is() {
+        for movement in [Movement::new(Motion::None, 1.0, 3), Movement::new(Motion::Drift, 0.0, 3)] {
+            assert!(!movement.moves());
+            assert_eq!(movement.amount(), 0.0);
+            for place in places() {
+                assert_eq!(movement.at(place, 0.4), 0.0);
+            }
+        }
+    }
+
+    #[test]
+    fn an_unknown_motion_says_what_there_is() {
+        let message = Motion::named("wobble").unwrap_err();
+        assert!(message.contains("ripple"), "{message}");
     }
 }

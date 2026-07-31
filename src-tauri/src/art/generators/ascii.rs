@@ -18,6 +18,7 @@ use rayon::prelude::*;
 use crate::art::canvas::{ink_coverage, AsciiCanvas, CELL_ASPECT};
 use crate::art::generator::{Generator, GlyphGenerator};
 use crate::art::glyphs::{ALPHABET, CELL_PIXELS, CELL_PIXELS_TALL, CELL_PIXELS_WIDE};
+use crate::art::motion::Movement;
 use crate::art::params::Params;
 
 #[derive(Clone, Copy, Debug)]
@@ -282,12 +283,24 @@ impl Bound {
     }
 }
 
-pub struct Solid {
-    faces: Vec<Face>,
-    bound: Bound,
+/// A drawing's ink as a height for every cell, kept rather than spent.
+///
+/// Lifting a drawing is reading its ink into a table and then building a surface
+/// over the table. Everything downstream only wants the surface, so the table
+/// used to be thrown away with the line that made it — but a movement is a thing
+/// done to the table, and the surface is rebuilt from it once a frame. Keeping
+/// it is what makes that cost the rebuilding rather than the re-reading.
+pub struct Relief {
+    heights: Vec<f64>,
+    rows: usize,
+    columns: usize,
+    /// The tallest column in the drawing as written. Measured rather than taken
+    /// from `depth`, which keeps the fit tight when nothing in the drawing
+    /// reaches full ink.
+    tallest: f64,
 }
 
-impl Solid {
+impl Relief {
     /// `depth` is how far the heaviest glyph stands out, in cell widths.
     pub fn from_text(text: &str, depth: f64) -> Self {
         let normalized = text.replace("\r\n", "\n").replace('\t', "    ");
@@ -313,11 +326,63 @@ impl Solid {
             }
         }
 
-        // Measuring the drawing rather than taking `depth` keeps the fit tight
-        // when nothing in it reaches full ink.
         let tallest = heights.iter().copied().fold(0.0, f64::max);
+        Self { heights, rows, columns, tallest }
+    }
 
-        Self::from_heights(&heights, rows, columns, tallest)
+    /// The drawing as it was written.
+    pub fn lifted(&self) -> Solid {
+        Solid::from_heights(&self.heights, self.rows, self.columns, self.tallest)
+    }
+
+    /// The drawing with `movement` over it, at `phase` of the loop.
+    pub fn moved(&self, movement: &Movement, phase: f64) -> Solid {
+        let raised = self.raised(movement, phase);
+        Solid::from_heights(&raised, self.rows, self.columns, self.reach(movement))
+    }
+
+    /// The height table `moved` builds its surface over.
+    ///
+    /// The movement *scales* each column rather than adding to it, so a cell the
+    /// drawing left blank is still blank however hard the surface is moving. That
+    /// is the whole reason it is done this way round: the paper between the
+    /// strokes is most of what makes a drawing read, and a movement that lifted
+    /// it too would fill the picture in and leave a rippling slab.
+    fn raised(&self, movement: &Movement, phase: f64) -> Vec<f64> {
+        let columns = self.columns.max(1);
+        let (wide, tall) = (columns as f64, self.rows.max(1) as f64);
+        self.heights
+            .iter()
+            .enumerate()
+            .map(|(index, height)| {
+                // Measured across the drawing either way, so a movement runs out
+                // over the whole of it whatever shape the drawing is.
+                let place = [
+                    2.0 * (index % columns) as f64 / wide - 1.0,
+                    2.0 * (index / columns) as f64 / tall - 1.0,
+                    0.0,
+                ];
+                height * (1.0 + movement.at(place, phase))
+            })
+            .collect()
+    }
+
+    /// The tallest column the drawing will ever raise under `movement`, which is
+    /// not the tallest it raises in any one frame — see [`Solid::from_heights`].
+    pub fn reach(&self, movement: &Movement) -> f64 {
+        self.tallest * (1.0 + movement.amount())
+    }
+}
+
+pub struct Solid {
+    faces: Vec<Face>,
+    bound: Bound,
+}
+
+impl Solid {
+    /// `depth` is how far the heaviest glyph stands out, in cell widths.
+    pub fn from_text(text: &str, depth: f64) -> Self {
+        Relief::from_text(text, depth).lifted()
     }
 
     /// A solid from a heightfield directly, for a relief no text was written
@@ -1141,8 +1206,14 @@ impl Surface {
 ///
 /// It says nothing about where the solid came from, so any tool whose whole
 /// animation is a turn can be this rather than write it out again.
+/// A surface built afresh for every frame, given the phase of the loop.
+type Rebuilt = Box<dyn Fn(f64) -> Solid + Send + Sync>;
+
 pub struct Turning {
     renderer: Renderer,
+    /// A surface that moves, or nothing and the renderer draws the one it was
+    /// built on.
+    rebuilt: Option<Rebuilt>,
     period: f64,
     /// Whole turns, rounded on the way in: a quarter of one is a quarter of the
     /// way round at the seam.
@@ -1157,22 +1228,36 @@ impl Turning {
     pub fn new(mut renderer: Renderer, period: f64, turns: f64, still: bool) -> Self {
         let turns = turns.round();
         renderer.spins = !still && turns != 0.0;
-        Self { renderer, period, turns, still }
+        Self { renderer, rebuilt: None, period, turns, still }
+    }
+
+    /// The same, over a surface that is rebuilt for every frame.
+    ///
+    /// The renderer is still built once. Sweeping the probe sphere for the light
+    /// rig is the expensive half of building one, and the rig does not care what
+    /// the surface is doing — see [`Renderer::canvas_of`].
+    pub fn rebuilding(mut self, rebuilt: Rebuilt) -> Self {
+        self.rebuilt = Some(rebuilt);
+        self
     }
 }
 
 impl GlyphGenerator for Turning {
     fn canvas(&self, columns: usize, rows: usize, time: f64) -> AsciiCanvas {
-        let yaw = if self.still {
-            self.renderer.yaw
-        } else {
-            self.renderer.yaw + TAU * self.turns * (time / self.period)
-        };
-        self.renderer.canvas_at(columns, rows, yaw)
+        // Taken round the loop rather than along the clock, so the yaw of the
+        // ten-thousandth second is worked out to the same precision as the
+        // first. Whole turns make the two the same angle anyway.
+        let phase = if self.still { 0.0 } else { (time / self.period).rem_euclid(1.0) };
+        let yaw = self.renderer.yaw + TAU * self.turns * phase;
+        match &self.rebuilt {
+            Some(rebuild) => self.renderer.canvas_of(&rebuild(phase), columns, rows, yaw),
+            None => self.renderer.canvas_at(columns, rows, yaw),
+        }
     }
 
     fn loop_duration(&self) -> Option<f64> {
-        (!self.still && self.turns != 0.0).then_some(self.period)
+        let moves = self.turns != 0.0 || self.rebuilt.is_some();
+        (!self.still && moves).then_some(self.period)
     }
 
     fn frame_aspect(&self) -> Option<f64> {
@@ -1235,23 +1320,36 @@ pub fn build(params: &Params) -> Result<Generator, String> {
     };
 
     let depth = params.f64("depth", 8.0)?;
-    let mut renderer = Renderer::new(Solid::from_text(&text, depth));
+    let relief = Relief::from_text(&text, depth);
+    let movement = Movement::from_params(params)?;
+
+    // Any phase would do to build the rig on — the reach is declared, so every
+    // frame's solid is bounded the same — and nought is the drawing as written.
+    let mut renderer = Renderer::new(relief.moved(&movement, 0.0));
     renderer.yaw = params.f64("yaw", 0.6_f64.to_degrees())?.to_radians();
     renderer.pitch = params.f64("pitch", 0.5_f64.to_degrees())?.to_radians();
     renderer.zoom = params.f64("zoom", 0.92)?;
 
-    Ok(Generator::Glyph(Box::new(Turning::new(
+    let turning = Turning::new(
         renderer,
         params.period()?,
         params.f64("turns", 2.0)?,
         params.is_set("still"),
-    ))))
+    );
+    // Rebuilding is a lift a frame, so it is only taken on where there is
+    // something to rebuild for.
+    Ok(Generator::Glyph(Box::new(if movement.moves() {
+        turning.rebuilding(Box::new(move |phase| relief.moved(&movement, phase)))
+    } else {
+        turning
+    })))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::art::canvas::SPACE;
+    use crate::art::motion::Motion;
 
     const DIAMOND: &str = "\
    @@@
@@ -1450,12 +1548,6 @@ mod tests {
 
     /// The turns are the loop, and the exporter samples exactly that span. A
     /// wrong answer here is a GIF with a visible jump at the seam.
-    ///
-    /// The seam closes to within a few cells rather than exactly. Three turns
-    /// of yaw land a bit or two off where they started, and a cell where two
-    /// faces meet at the same depth then breaks its tie the other way. Five
-    /// cells in five hundred is invisible; the wrong period is not, which is
-    /// what the second half of this measures.
     #[test]
     fn whole_turns_land_back_where_they_started() {
         let turning = Turning::new(Renderer::new(Solid::from_text(DIAMOND, 8.0)), 5.0, 3.0, false);
@@ -1473,12 +1565,11 @@ mod tests {
                 .count()
         };
 
-        let seam = moved_after(period);
-        assert!(seam < 560 / 50, "the loop does not close: {seam} cells moved");
-        assert!(
-            moved_after(period * 0.9) > seam * 10,
-            "the seam tolerance is wide enough to hide a wrong period"
-        );
+        // Exactly, rather than to within a cell or two: the phase is taken round
+        // the loop, so the frame at the period is the frame at nought and not
+        // merely the same angle worked out a longer way.
+        assert_eq!(moved_after(period), 0, "the loop does not close");
+        assert!(moved_after(period * 0.9) > 100, "a tenth of a turn short and nothing moved");
     }
 
     /// Caps carry the light now, so which way they point is worth pinning down.
@@ -1628,6 +1719,54 @@ mod tests {
         let none = Turning::new(solid(), 5.0, 0.4, false);
         assert_eq!(none.loop_duration(), None);
         assert_eq!(none.canvas(40, 14, 0.0).glyphs, none.canvas(40, 14, 9.0).glyphs);
+    }
+
+    /// A drawing that only moves has a loop of its own, whether or not it is
+    /// also being turned. Without this a motion asked for on its own would be
+    /// sampled against the clock and the seam would land wherever it liked.
+    #[test]
+    fn a_surface_that_moves_has_a_loop_of_its_own() {
+        let relief = Relief::from_text(DIAMOND, 8.0);
+        let movement = Movement::new(Motion::Ripple, 0.5, 3);
+        let turning = Turning::new(Renderer::new(relief.moved(&movement, 0.0)), 5.0, 0.0, false)
+            .rebuilding(Box::new(move |phase| relief.moved(&movement, phase)));
+
+        assert_eq!(turning.loop_duration(), Some(5.0));
+        assert_eq!(turning.canvas(40, 14, 0.0).glyphs, turning.canvas(40, 14, 5.0).glyphs);
+        assert_ne!(turning.canvas(40, 14, 0.0).glyphs, turning.canvas(40, 14, 1.7).glyphs);
+    }
+
+    /// The one thing scaling the columns buys over adding to them, and the
+    /// reason it is done that way round: paper stays paper. A movement that
+    /// lifted the gaps would fill the drawing in and leave a rippling slab.
+    #[test]
+    fn a_movement_never_raises_a_cell_the_drawing_left_blank() {
+        let relief = Relief::from_text(DIAMOND, 8.0);
+        let blank: Vec<usize> = relief
+            .heights
+            .iter()
+            .enumerate()
+            .filter(|(_, height)| **height == 0.0)
+            .map(|(index, _)| index)
+            .collect();
+        assert!(blank.len() > 8, "the drawing has to have some paper to check");
+
+        for motion in [Motion::Ripple, Motion::Breathe, Motion::Drift] {
+            let movement = Movement::new(motion, 1.0, 3);
+            for step in 0..8 {
+                let phase = step as f64 / 8.0;
+                let moved = relief.raised(&movement, phase);
+                assert!(
+                    blank.iter().all(|index| moved[*index] == 0.0),
+                    "{motion:?} lifted the paper at phase {phase}"
+                );
+                // And what is inked never reaches past what the frame was cut
+                // for, however hard the movement pushes.
+                let tallest = moved.iter().copied().fold(0.0, f64::max);
+                let reach = relief.reach(&movement);
+                assert!(tallest <= reach + 1e-9, "{motion:?} raised {tallest} past {reach}");
+            }
+        }
     }
 
     /// The cache is what stops the preview from going back to disk, so the risk
