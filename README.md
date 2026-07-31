@@ -96,13 +96,39 @@ shading: the rasteriser already knows how many of its samples the solid reached,
 so a cell it fills completely is interior and gets graded, and a cell it fills
 partly is on the silhouette and gets matched.
 
-The ramp is `.:-=+*#%@`, measured from the same bitmaps rather than assumed. A
-longer one is only better if every step looks like the ones either side — `*`,
-`+`, `?`, `!` and `|` carry nearly the same ink and look nothing alike, so a face
-graded through them changes texture where it should only change tone, and reads
-as noise. The silhouette is matched against strokes for the same reason: a `W` or
-a `J` may fit an edge best by least squares, but what the eye does with a row of
-letters is read it.
+Which characters the graded half runs through is `--grade`, and the three sets it
+offers are a real trade rather than a preference:
+
+| `--grade` | | |
+| --- | --- | --- |
+| `shades` | `.:-=+*#%@` | nine marks that thicken one into the next |
+| `detailed` | `.,:;i1tfLCG08@` | fifteen, the default |
+| `ink` | every printable glyph | ninety-five, ordered by coverage |
+
+Every one of them is *measured* rather than indexed. An ordering made by eye is
+never evenly spaced — `'` and `-` are nearly the same weight while `|` to `0` is
+a jump — so indexing by position spends the same range of brightness on each step
+and a face at half brightness comes out at whatever the middle character happens
+to weigh. The bitmaps have already been rasterised, so a brightness buys the glyph
+whose ink is nearest instead, and anything the ordering had out of place is put
+right by the same stroke.
+
+Nine is the safe answer and it is what a renderer whose output reads as a solid
+usually uses, `donut.c`'s `.,-~:;=!*#$@` included. It is not the best answer here:
+a lit body's faces sit in a narrow band of brightness, and nine steps quantise
+that band into terraces the shading never put there. Fifteen resolve it and still
+thicken visibly from one step to the next.
+
+Ninety-five do not. `%`, `&`, `M` and `W` are neighbours by coverage and look
+nothing alike, so a face crossing that stretch changes texture where it should
+only change tone: the brightness field underneath is smooth and the picture is
+not. It is offered because it is the honest maximum and it suits flat artwork,
+not because a solid should be drawn with it.
+
+None of this reaches the silhouette, which is matched against strokes whatever
+`--grade` says — a `W` or a `J` may fit an edge best by least squares, but what
+the eye does with a row of letters is read it. So a longer set buys shades on the
+faces without costing the outline its edges.
 
 ## Reading a picture back
 
@@ -254,7 +280,9 @@ And its own on top:
 | | `--seed` | which field | `7` |
 
 A tool that turns takes `--yaw` `--pitch` `--zoom` and either `--turns`, whole
-turns over one loop, or `--still` for none. Anything that loops takes `--period`:
+turns over one loop, or `--still` for none. Anything lit takes `--grade` —
+`shades`, `detailed` or `ink`, defaulting to `detailed`. Anything that loops
+takes `--period`:
 how many seconds one loop lasts, which is the whole clip unless less is asked
 for.
 

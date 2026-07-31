@@ -45,20 +45,20 @@ pub enum Marks {
 
 impl Marks {
     pub fn named(name: &str) -> Result<Self, String> {
-        match name {
-            "match" => Ok(Self::Matched),
-            "shades" => Ok(Self::Graded(AsciiRamp::Shades)),
-            "detailed" => Ok(Self::Graded(AsciiRamp::Detailed)),
-            "ink" => Ok(Self::Graded(AsciiRamp::Ink)),
-            other => Err(format!(
-                "`{other}` is not a set of marks — try match, shades, detailed or ink"
-            )),
+        if name == "match" {
+            return Ok(Self::Matched);
         }
+        AsciiRamp::named(name).map(Self::Graded).map_err(|_| {
+            format!("`{name}` is not a set of marks — try match, shades, detailed or ink")
+        })
     }
 
     fn byte(self, cell: &[f32; CELL_PIXELS], light: f32) -> u8 {
         match self {
-            Self::Matched => ALPHABET.nearest(cell, false),
+            // Which ramp the matcher falls back to on a cell with no shape in
+            // it at all. A picture read this way is mostly edges, so it is
+            // asked rarely and the short one is enough.
+            Self::Matched => ALPHABET.nearest(cell, false, AsciiRamp::Shades),
             Self::Graded(ramp) => AsciiRamp::byte_for_intensity(light as f64, ramp.bytes()),
         }
     }

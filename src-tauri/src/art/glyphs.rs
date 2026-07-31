@@ -18,7 +18,7 @@ use std::sync::LazyLock;
 
 use fontdue::Font;
 
-use super::canvas::SPACE;
+use super::canvas::{AsciiRamp, SPACE};
 use super::FONT;
 
 /// How finely a cell is sampled before a character is chosen for it.
@@ -109,8 +109,24 @@ pub struct Alphabet {
     /// Ordered lightest to heaviest, which is what lets [`Alphabet::matched`]
     /// stop early.
     templates: Vec<Template>,
-    /// Brightness to the ramp character carrying that much ink.
-    ramp: Vec<u8>,
+    /// How much ink every printable glyph lays down, against the most any of
+    /// them can. Measured from the font rather than assumed, and it is what
+    /// makes a ramp mean what it says whichever characters are in it.
+    ///
+    /// Kept after the tables are built so a ramp can be held to the numbers it
+    /// was built from. Nothing reads it at run time — every question it answers
+    /// has already been answered into a table by then.
+    #[cfg_attr(not(test), allow(dead_code))]
+    weights: Vec<(u8, f32)>,
+    /// Brightness to the character carrying that much ink, one table per
+    /// [`AsciiRamp`] and in [`AsciiRamp::ALL`]'s order.
+    ///
+    /// Resolved for all of them at load rather than for the one a render asks
+    /// for, because the alphabet is a static shared by every tool and a render
+    /// cannot rasterise a second one to suit itself. Three tables of
+    /// [`RAMP_STEPS`] bytes is nothing beside the ninety-five bitmaps they are
+    /// measured from.
+    ramps: Vec<Vec<u8>>,
 }
 
 /// Rasterised once. Ninety-five glyphs at eight times resolution is real work,
@@ -160,7 +176,14 @@ impl Alphabet {
             .fold(0.0, f32::max)
             .max(f32::EPSILON);
 
-        let ramp = grade(&coverages, range);
+        let weights: Vec<(u8, f32)> = coverages
+            .iter()
+            .map(|(byte, coverage)| (*byte, mean_of(coverage) / range))
+            .collect();
+        let ramps = AsciiRamp::ALL
+            .into_iter()
+            .map(|ramp| grade(&weights, ramp))
+            .collect();
 
         let mut templates: Vec<Template> = coverages
             .into_iter()
@@ -169,13 +192,25 @@ impl Alphabet {
             .collect();
         templates.sort_by(|one, other| one.weight.total_cmp(&other.weight));
 
-        Self { templates, ramp }
+        Self { templates, weights, ramps }
+    }
+
+    /// The brightness table for one set of characters.
+    fn table(&self, ramp: AsciiRamp) -> &[u8] {
+        let which = AsciiRamp::ALL
+            .into_iter()
+            .position(|candidate| candidate == ramp)
+            .unwrap_or(0);
+        &self.ramps[which]
     }
 
     /// The character to draw `cell` with, whose samples run from 0 for unlit to
     /// 1 for fully lit.
     ///
-    /// `whole` says the solid covers every sample in the cell.
+    /// `whole` says the solid covers every sample in the cell, and `ramp` is the
+    /// set of characters an interior cell is graded through. A silhouette cell
+    /// does not take one: what a traced edge needs is a mark running the way the
+    /// edge runs, and no ordering by weight has one to offer.
     ///
     /// Which of the two references applies depends on where the cell is, and
     /// neither does the other's job well. Least squares over bitmaps is the only
@@ -198,19 +233,20 @@ impl Alphabet {
     /// which samples the solid reached. A cell it fills completely is interior,
     /// whatever is happening inside it, and a cell it fills partly is on the
     /// silhouette — which is the only place a traced edge belongs.
-    pub fn nearest(&self, cell: &Cell, whole: bool) -> u8 {
+    pub fn nearest(&self, cell: &Cell, whole: bool, ramp: AsciiRamp) -> u8 {
         let mean = mean_of(cell);
         if whole {
-            return self.graded(mean);
+            return self.graded(mean, ramp);
         }
-        self.matched(cell, mean)
+        self.matched(cell, mean, ramp)
     }
 
     /// The ramp character holding as near as possible to `brightness` worth of
     /// ink.
-    fn graded(&self, brightness: f32) -> u8 {
-        let step = brightness.clamp(0.0, 1.0) * (self.ramp.len() - 1) as f32;
-        self.ramp[step.round() as usize]
+    fn graded(&self, brightness: f32, ramp: AsciiRamp) -> u8 {
+        let table = self.table(ramp);
+        let step = brightness.clamp(0.0, 1.0) * (table.len() - 1) as f32;
+        table[step.round() as usize]
     }
 
     /// Picks the glyph closest to the cell in two respects at once: how much
@@ -236,12 +272,12 @@ impl Alphabet {
     /// so far ends the search, because everything still unvisited lies further
     /// out and scores at least as badly. The answer is the same one the full
     /// sweep gives; only the work is smaller.
-    fn matched(&self, cell: &Cell, mean: f32) -> u8 {
+    fn matched(&self, cell: &Cell, mean: f32, ramp: AsciiRamp) -> u8 {
         let Some(shape) = direction_of(cell, mean) else {
-            return self.graded(mean);
+            return self.graded(mean, ramp);
         };
 
-        let mut best = self.graded(mean);
+        let mut best = self.graded(mean, ramp);
         let mut best_score = f32::INFINITY;
 
         let start = self.templates.partition_point(|template| template.weight < mean);
@@ -309,51 +345,46 @@ fn direction_of(cell: &Cell, mean: f32) -> Option<Cell> {
     Some(shape)
 }
 
-/// The characters a lit face is graded through, lightest first.
+/// How finely brightness is resolved before it is turned into a character.
+/// Well past what any of the ramps can distinguish, so a table is exact
+/// wherever two of their steps are close together.
+const RAMP_STEPS: usize = 256;
+
+/// Brightness to character, by how much ink each of `ramp`'s own steps actually
+/// lays down in this font.
 ///
 /// A ramp needs two things at once and they pull against each other. Its steps
 /// have to differ in weight, or the shading has no range; and they have to *look*
 /// like each other, or a smooth surface reads as static however correct each cell
-/// is on its own.
+/// is on its own. [`AsciiRamp::Shades`] is nine marks that thicken one into the
+/// next, which is what every renderer whose output reads as a solid uses — from
+/// `donut.c`'s `.,-~:;=!*#$@` on. The longer sets trade that for range, and a
+/// terraced surface with its faces bunched into a narrow band of brightness is
+/// exactly where the extra steps are worth having.
 ///
-/// `emilwidlund/ASCII`'s nineteen — `.:,'-^=*+?!|0#X%WM@` — were ordered for the
-/// first and this used them. `*`, `+`, `?`, `!` and `|` all carry about the same
-/// ink and look nothing alike, so a face crossing that stretch of the ramp broke
-/// into a rash of punctuation: the brightness field underneath was smooth and the
-/// picture was not. Every renderer whose output actually reads as a solid — from
-/// `donut.c`'s `.,-~:;=!*#$@` on — uses a short ramp of marks that thicken from
-/// one to the next, and that is the property worth spending the range on. Nine of
-/// them still resolve more shades than a cell of text can carry.
+/// Whichever it is, indexing it by position would be a ramp that lies about its
+/// own middle. Every ordering here was made by eye and none of them is evenly
+/// spaced — `'` and `-` are nearly the same weight while `|` to `0` is a jump —
+/// so a face at half brightness would come out at whatever the middle character
+/// happened to weigh. Every glyph has just been measured, so ask for the one
+/// whose ink is nearest instead and a shade means what it says. Any character
+/// the ordering had out of place is put right by the same stroke, which is what
+/// makes the ninety-five-glyph set usable at all.
 ///
-/// The leading space such a ramp usually opens with is missing because background
-/// is settled by coverage; see [`Alphabet`].
-const RAMP: &[u8] = b".:-=+*#%@";
-
-/// How finely brightness is resolved before it is turned into a character.
-/// Well past what nine characters can distinguish, so the table is exact
-/// wherever two of them are close together.
-const RAMP_STEPS: usize = 256;
-
-/// Brightness to ramp character, by how much ink each one actually lays down in
-/// this font.
-///
-/// [`RAMP`] is ordered by eye against whatever face its author was looking at,
-/// and its steps are not evenly spaced in any case — `'` and `-` are nearly the
-/// same weight while `|` to `0` is a jump. Indexing it by position therefore
-/// spends the same range of brightness on each, which is a ramp that lies about
-/// its own middle: a face at half brightness comes out at whatever the tenth
-/// character happens to weigh. Every glyph has just been measured, so ask for
-/// the one whose ink is nearest instead and a shade means what it says. Any
-/// character the ordering had out of place is fixed by the same stroke.
-fn grade(coverages: &[(u8, Cell)], range: f32) -> Vec<u8> {
-    let ink: Vec<(u8, f32)> = RAMP
+/// The space an ordered ramp opens with is dropped: background is settled by
+/// coverage, and a shade answering it a second time punches holes through a lit
+/// face. See [`Alphabet`].
+fn grade(weights: &[(u8, f32)], ramp: AsciiRamp) -> Vec<u8> {
+    let ink: Vec<(u8, f32)> = ramp
+        .bytes()
         .iter()
+        .filter(|byte| !byte.is_ascii_whitespace())
         .map(|&byte| {
-            let coverage = coverages
+            let weight = weights
                 .iter()
                 .find(|(candidate, _)| *candidate == byte)
-                .map_or(0.0, |(_, coverage)| mean_of(coverage));
-            (byte, coverage / range)
+                .map_or(0.0, |(_, weight)| *weight);
+            (byte, weight)
         })
         .collect();
 
@@ -438,6 +469,7 @@ impl Template {
 mod tests {
     use super::*;
     use crate::art::canvas::CELL_ASPECT;
+    use std::collections::HashSet;
 
     /// The sub-cell grid stands in for a cell, so it has to be that cell's
     /// shape. Were it not, every render would come out stretched by the
@@ -457,47 +489,79 @@ mod tests {
     /// space here would punch a hole through the middle of a silhouette.
     #[test]
     fn even_an_unlit_cell_gets_a_mark() {
-        assert_eq!(ALPHABET.nearest(&[0.0; CELL_PIXELS], true), b'.');
+        assert_eq!(ALPHABET.nearest(&[0.0; CELL_PIXELS], true, AsciiRamp::Shades), b'.');
         assert!(ALPHABET
-            .ramp
+            .ramps
             .iter()
+            .flatten()
             .chain(ALPHABET.templates.iter().map(|template| &template.byte))
             .all(|&byte| byte != SPACE));
     }
 
-    /// The whole reason the ramp is measured rather than indexed: brightness has
+    /// The whole reason a ramp is measured rather than indexed: brightness has
     /// to buy the character carrying that much ink, so a shade means what it
-    /// says and the range is spent where the picture actually varies.
+    /// says and the range is spent where the picture actually varies. It holds
+    /// for all three, which is what lets a longer one be offered at all — the
+    /// ink ramp's own ordering has plenty out of place.
     #[test]
-    fn the_ramp_runs_from_faint_to_solid_without_going_back() {
+    fn every_ramp_runs_from_faint_to_solid_without_going_back() {
         let weight = |byte: u8| {
             ALPHABET
-                .templates
+                .weights
                 .iter()
-                .find(|template| template.byte == byte)
-                .expect("every ramp character is a template")
-                .weight
+                .find(|(candidate, _)| *candidate == byte)
+                .expect("every ramp character was rasterised")
+                .1
         };
 
-        let mut previous = 0.0;
-        for step in 0..RAMP_STEPS {
-            let ink = weight(ALPHABET.ramp[step]);
-            assert!(ink >= previous, "the ramp goes back on itself at step {step}");
-            previous = ink;
+        for ramp in AsciiRamp::ALL {
+            let mut previous = 0.0;
+            for (step, &byte) in ALPHABET.table(ramp).iter().enumerate() {
+                let ink = weight(byte);
+                assert!(
+                    ink >= previous,
+                    "{} goes back on itself at step {step}",
+                    ramp.name()
+                );
+                previous = ink;
+            }
         }
-        assert_eq!(ALPHABET.graded(0.0), b'.');
-        assert_eq!(ALPHABET.graded(1.0), b'@');
+
+        assert_eq!(ALPHABET.graded(0.0, AsciiRamp::Shades), b'.');
+        assert_eq!(ALPHABET.graded(1.0, AsciiRamp::Shades), b'@');
+    }
+
+    /// A longer ramp has to actually resolve more of the range, or offering it
+    /// is a control that does nothing. Over one sweep of brightness each set
+    /// should put down as many distinct characters as it has steps.
+    #[test]
+    fn a_longer_ramp_puts_down_more_characters() {
+        let distinct = |ramp: AsciiRamp| {
+            ALPHABET.table(ramp).iter().copied().collect::<HashSet<u8>>().len()
+        };
+
+        let shades = distinct(AsciiRamp::Shades);
+        let detailed = distinct(AsciiRamp::Detailed);
+        let ink = distinct(AsciiRamp::Ink);
+        assert!(
+            shades < detailed && detailed < ink,
+            "the ramps resolve {shades}, {detailed} and {ink} characters"
+        );
+        assert_eq!(shades, AsciiRamp::Shades.bytes().len() - 1);
     }
 
     /// A patch that is lit everywhere wants a glyph that covers everywhere.
     #[test]
     fn a_fully_lit_cell_is_a_heavy_glyph() {
-        let glyph = ALPHABET.nearest(&[1.0; CELL_PIXELS], true);
-        assert!(
-            b"@#%$&8BMW".contains(&glyph),
-            "a solid patch came back as `{}`",
-            glyph as char
-        );
+        for ramp in AsciiRamp::ALL {
+            let glyph = ALPHABET.nearest(&[1.0; CELL_PIXELS], true, ramp);
+            assert!(
+                b"@#%$&8BMW".contains(&glyph),
+                "a solid patch came back as `{}` on {}",
+                glyph as char,
+                ramp.name()
+            );
+        }
     }
 
     /// The point of matching bitmaps rather than reading a ramp: a cell lit only
@@ -515,8 +579,8 @@ mod tests {
             falling[y * CELL_PIXELS_WIDE + (CELL_PIXELS_WIDE - 1 - x)] = 1.0;
         }
 
-        assert_eq!(ALPHABET.nearest(&rising, false), b'/');
-        assert_eq!(ALPHABET.nearest(&falling, false), b'\\');
+        assert_eq!(ALPHABET.nearest(&rising, false, AsciiRamp::Shades), b'/');
+        assert_eq!(ALPHABET.nearest(&falling, false, AsciiRamp::Shades), b'\\');
     }
 
     /// Where in the cell the light is has to matter, not just how much of it
@@ -528,7 +592,7 @@ mod tests {
             for x in 0..CELL_PIXELS_WIDE {
                 cell[index * CELL_PIXELS_WIDE + x] = 1.0;
             }
-            ALPHABET.nearest(&cell, false)
+            ALPHABET.nearest(&cell, false, AsciiRamp::Shades)
         };
         let low = row(CELL_PIXELS_TALL - 3);
         let high = row(1);
@@ -541,14 +605,19 @@ mod tests {
     }
 
     /// Every candidate is a character the exporter can actually draw, and none
-    /// of them is a space or anything that would read as a word.
+    /// of them is a space or anything that would read as a word. The default
+    /// ramp is held to the same bar — the longer sets are asked for by name,
+    /// and what they cost in letters is the whole of what they trade.
     #[test]
     fn the_alphabet_is_marks_and_only_marks() {
         assert_eq!(ALPHABET.templates.len(), MARKS.len());
         assert!(ALPHABET.templates.iter().all(|template| {
             template.byte.is_ascii_graphic() && !template.byte.is_ascii_lowercase()
         }));
-        assert!(RAMP.iter().all(|byte| MARKS.contains(byte)));
+        assert!(AsciiRamp::Shades
+            .bytes()
+            .iter()
+            .all(|byte| *byte == SPACE || MARKS.contains(byte)));
     }
 
     /// Stopping the search early is only worth doing if it stops at the same
@@ -593,7 +662,7 @@ mod tests {
             }
             let mean = mean_of(&cell);
             assert_eq!(
-                ALPHABET.matched(&cell, mean),
+                ALPHABET.matched(&cell, mean, AsciiRamp::Shades),
                 sweep(&cell, mean),
                 "the search stopped short at brightness {level}"
             );

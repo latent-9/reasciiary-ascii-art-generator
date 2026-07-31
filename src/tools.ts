@@ -153,6 +153,16 @@ export const TOOLS: Tool[] = [
           { kind: "range", flag: "relief", label: "Detail", min: 16, max: 320, step: 8, value: 120 },
           { kind: "range", flag: "contrast", label: "Contrast", min: 0.2, max: 4, step: 0.1, value: 1 },
           { kind: "switch", flag: "invert", label: "Invert", value: false },
+          // Which characters a lit face is graded through. The outline is
+          // traced against strokes whatever this says, so the choice buys
+          // shades on the faces without costing the silhouette its edges.
+          {
+            kind: "choice",
+            flag: "grade",
+            label: "Characters",
+            value: "detailed",
+            options: ["shades", "detailed", "ink"],
+          },
         ],
       },
       { title: "Motion", controls: [TURNS, ...MOVEMENT, STILL] },

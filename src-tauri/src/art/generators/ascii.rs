@@ -22,7 +22,7 @@ use image::imageops::{resize, FilterType};
 use image::{ImageReader, RgbaImage};
 use rayon::prelude::*;
 
-use crate::art::canvas::{ink_coverage, AsciiCanvas, CELL_ASPECT};
+use crate::art::canvas::{ink_coverage, AsciiCanvas, AsciiRamp, CELL_ASPECT};
 use crate::art::generator::{Generator, GlyphGenerator};
 use crate::art::glyphs::{ALPHABET, CELL_PIXELS, CELL_PIXELS_TALL, CELL_PIXELS_WIDE};
 use crate::art::motion::Movement;
@@ -861,6 +861,20 @@ pub struct Renderer {
     /// column is a nearer one, so head-on the render still reproduces the
     /// drawing's own ink rather than only the shape the lights find in it.
     pub depth_cueing: f64,
+    /// Which characters the interior of a lit face is graded through.
+    ///
+    /// Only the interior. A silhouette cell is matched against strokes whatever
+    /// this says, because what a traced edge needs is a mark running the way the
+    /// edge runs and no ordering by weight has one — so a longer set buys shades
+    /// on the faces without costing the outline its edges.
+    ///
+    /// [`AsciiRamp::Detailed`] rather than the nine-step one this used to be
+    /// fixed at. Nine is the safe answer and it is still a flag away, but a lit
+    /// body's faces sit in a narrow band of brightness and nine steps quantise
+    /// it into terraces the shading did not put there. Fifteen resolve it, and
+    /// because a table is built by measured ink rather than by position (see
+    /// [`super::super::glyphs`]) the extra steps land where they claim to.
+    pub ramp: AsciiRamp,
 }
 
 impl Renderer {
@@ -913,6 +927,7 @@ impl Renderer {
             specular: 0.30,
             shininess: 24.0,
             depth_cueing: 0.32,
+            ramp: AsciiRamp::Detailed,
         }
     }
 
@@ -1039,7 +1054,7 @@ impl Renderer {
             );
         }
 
-        surface.read_into(&mut canvas);
+        surface.read_into(&mut canvas, self.ramp);
         canvas
     }
 
@@ -1221,7 +1236,7 @@ impl Surface {
     /// runs of another — and choosing characters is the largest single cost in a
     /// frame, so they are shared out across cores. That is most of what makes a
     /// preview keep up with a spin.
-    fn read_into(&self, canvas: &mut AsciiCanvas) {
+    fn read_into(&self, canvas: &mut AsciiCanvas, ramp: AsciiRamp) {
         let columns = self.columns;
         canvas
             .glyphs
@@ -1255,7 +1270,7 @@ impl Surface {
                     // against the whole alphabet to be told it is a space is the
                     // single biggest cost in here.
                     if covered > 0 {
-                        *glyph = ALPHABET.nearest(&cell, covered == CELL_PIXELS);
+                        *glyph = ALPHABET.nearest(&cell, covered == CELL_PIXELS, ramp);
                     }
                 }
             });
@@ -1438,6 +1453,7 @@ pub fn build(params: &Params) -> Result<Generator, String> {
     renderer.yaw = params.f64("yaw", 0.6_f64.to_degrees())?.to_radians();
     renderer.pitch = params.f64("pitch", 0.5_f64.to_degrees())?.to_radians();
     renderer.zoom = params.f64("zoom", 0.92)?;
+    renderer.ramp = AsciiRamp::named(params.string("grade").unwrap_or("detailed"))?;
 
     let turning = Turning::new(
         renderer,
@@ -1984,3 +2000,4 @@ mod tests {
         std::fs::remove_file(path).expect("cleanup");
     }
 }
+

@@ -10,6 +10,7 @@
 
 use std::f64::consts::TAU;
 
+use crate::art::canvas::AsciiRamp;
 use crate::art::generator::Generator;
 #[cfg(test)]
 use crate::art::generator::GlyphGenerator;
@@ -224,6 +225,7 @@ pub fn build(params: &Params) -> Result<Generator, String> {
     renderer.yaw = params.f64("yaw", 0.0)?.to_radians();
     renderer.pitch = params.f64("pitch", 26.0)?.to_radians();
     renderer.zoom = params.f64("zoom", 0.92)?;
+    renderer.ramp = AsciiRamp::named(params.string("grade").unwrap_or("detailed"))?;
 
     let turning = Turning::new(
         renderer,

@@ -179,12 +179,34 @@ pub enum AsciiRamp {
 }
 
 impl AsciiRamp {
+    /// Every one of them, which is the order they are offered in and the order
+    /// anything holding one table per ramp holds them in.
+    pub const ALL: [Self; 3] = [Self::Shades, Self::Detailed, Self::Ink];
+
     pub fn bytes(self) -> &'static [u8] {
         match self {
             Self::Shades => b" .:-=+*#%@",
             Self::Detailed => b" .,:;i1tfLCG08@",
             Self::Ink => INK_RAMP.as_bytes(),
         }
+    }
+
+    /// What a flag calls it, which is also what the window's control sends.
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Shades => "shades",
+            Self::Detailed => "detailed",
+            Self::Ink => "ink",
+        }
+    }
+
+    pub fn named(name: &str) -> Result<Self, String> {
+        Self::ALL
+            .into_iter()
+            .find(|ramp| ramp.name() == name)
+            .ok_or_else(|| {
+                format!("`{name}` is not a set of characters — try shades, detailed or ink")
+            })
     }
 
     /// The glyph standing in for a surface lit to `intensity`, 0 to 1.

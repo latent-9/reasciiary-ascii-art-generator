@@ -26,7 +26,7 @@ mod sliding;
 mod spherewave;
 mod toruscurve;
 
-use crate::art::canvas::{AsciiCanvas, CELL_ASPECT};
+use crate::art::canvas::{AsciiCanvas, AsciiRamp, CELL_ASPECT};
 use crate::art::generator::{Generator, GlyphGenerator};
 use crate::art::params::Params;
 use crate::art::read::{fine_size, Reader};
@@ -260,6 +260,7 @@ pub fn build(params: &Params) -> Result<Generator, String> {
             renderer.yaw = params.f64("yaw", 0.0)?.to_radians();
             renderer.pitch = params.f64("pitch", model.pitch())?.to_radians();
             renderer.zoom = params.f64("zoom", 0.92)?;
+            renderer.ramp = AsciiRamp::named(params.string("grade").unwrap_or("detailed"))?;
             Box::new(Modelled { model, period, still, renderer })
         }
     }))
