@@ -1,10 +1,10 @@
 /// What each tool takes, in the tool's own terms.
 ///
 /// The window used to be the ascii tool's window: one file to open, one depth
-/// slider, one spin. Four tools later that shape does not hold — a flow field
-/// has no depth, a picture has no spin — and writing each one's controls into
-/// the markup by hand would put the same list in three places and let them
-/// drift. So what a tool takes is written down here as data, and the panel is
+/// slider, one spin. Four more tools later that shape does not hold — a flow
+/// field has no depth, a picture has no turn, a piece brings its own subject —
+/// and writing each one's controls into the markup by hand would put the same
+/// list in five places and let them drift. So what a tool takes is written down here as data, and the panel is
 /// built from it. Adding the next tool is an entry in this table.
 ///
 /// Every `flag` is the name the backend already reads, so nothing translates

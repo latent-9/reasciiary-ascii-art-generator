@@ -1,17 +1,18 @@
 # Asciiary
 
-Four tools that end in the same place: a grid of characters, lit, and written out
+Five tools that end in the same place: a grid of characters, lit, and written out
 as an MP4, a GIF, a PNG or more text.
 
 | Tool | |
 | --- | --- |
+| `loops` | a finished piece that comes back round to where it began |
 | `ascii` | a `.txt` drawing lifted into a solid, ink for height |
 | `scene` | a sphere, torus, cube or knot cut from a formula and turned |
 | `media` | a picture or an animation quantised to glyphs |
 | `gen2d` | a flow field drawn in pixels and read back as glyphs |
 
-The renderers the first two borrow from all start with a mesh somebody modelled.
-`ascii` starts with a text file, so it needs one rule they do not: what the third
+The renderers `ascii` borrows from all start with a mesh somebody modelled. It
+starts with a text file, so it needs one rule they do not: what the third
 dimension of a drawing actually *is*. The rule is ink. A glyph that fills more of
 its cell stands taller — `@` rises, `.` barely lifts, a space is a hole — and the
 result is lit, projected back onto a character grid, and written out.
@@ -106,6 +107,53 @@ line, so a period arrives back exactly where it started — the trick
 on. Each stroke also carries its own offset into that period and fades in and out
 at both ends of it, so no frame is the one where every line restarts at once.
 
+## The pieces
+
+`loops` is the odd one out: every other tool is a way of looking at something you
+bring, and this one brings the subject as well. A piece is a finished animation
+with a dial or two on it, made to be exported — a loop that meets itself, at a
+size that can be posted.
+
+| `--piece` | |
+| --- | --- |
+| `hilbert` | a space-filling curve whose blocks pivot about their own middles |
+| `sinusoids` | circles packed into the frame, each with a wave running through it |
+| `sierpinski` | a gasket whose three copies slide round its corners |
+| `sliding` | a quadtree whose quarters slide while the whole of it doubles |
+| `spherewave` | a front crossing a sphere of loose elements, once a period |
+| `toruscurve` | a swell travelling along a tube wrapped round a knotted curve |
+
+Four of them paint into the same sub-cell raster `gen2d` uses and are read back
+by the same matcher; two hand quads to the lit renderer, the way `scene` does.
+Each takes its own dial where it wants one — `--order`, `--count`, `--depth`,
+`--twists` — rather than every piece answering for a row that means nothing to
+five of the six.
+
+The pieces are written from the ideas in
+[Bleuje's collection](https://github.com/Bleuje/processing-animations-code)
+rather than from its source, which reserves its rights. What is borrowed is the
+craft: phase instead of a clock, noise walked round a circle, easing that
+arrives, and the taste for a figure that rearranges itself and comes back.
+
+## Moving a surface
+
+`ascii` and `scene` take `--motion` on top of the turn — `ripple` for rings
+travelling out from the middle, `breathe` for the whole body at once, `drift` for
+noise walked round the same circle — with `--amount` for how hard.
+
+The two apply it differently, because their subjects are different. A drawing is
+a heightfield, so the movement scales heights rather than adding to them: a cell
+the drawing left blank stays blank, where a movement that added would fill the
+paper in and leave a rippling slab. A solid is displaced along each corner's own
+outward direction, which every sample already knows — away from the middle for a
+sphere, away from the ring for a torus, away from the curve for the knot — so one
+line moves all four and no shape has to be told about movement at all.
+
+Every motion is a whole number of cycles over the period by construction, so the
+loop closes exactly rather than nearly. A body that moves is framed for the
+largest it ever gets rather than for the frame in hand, or it would breathe in
+and out of shot as the movement travelled over it.
+
 ## Running it
 
 ```sh
@@ -114,9 +162,11 @@ bun run tauri dev
 ```
 
 The toolbar picks the tool; the panel beside the preview is that tool's own
-options and nothing else, with what the export writes at the foot of it. A tool
-that needs a file says so in the toolbar — `ascii` opens on a drawing that ships
-with the window, so there is something to turn before anything is opened.
+options and nothing else, with what the export writes at the foot of it. The
+window opens on `loops`, which brings its own subject, so there is a piece
+running before anything has been chosen. A tool that needs a file says so in the
+toolbar — `ascii` opens on a drawing that ships with the window, so that one has
+something to turn too.
 
 Drag the preview to turn a solid, scroll to zoom, double-click to face it again.
 Each tool keeps its own angle, so turning the torus and then coming back to the
@@ -171,6 +221,11 @@ And its own on top:
 
 | Tool | Flag | | Default |
 | --- | --- | --- | --- |
+| `loops` | `--piece` | which of the six above | `hilbert` |
+| | `--order` `--depth` | how far `hilbert`, and `sierpinski` or `sliding`, recurse | `4` |
+| | `--count` | discs in `sinusoids`, elements in `spherewave` | `28` `700` |
+| | `--twists` | turns the short way in `toruscurve` | `3` |
+| | `--seed` | which arrangement | `7` |
 | `ascii` | *(first word)* | the `.txt` to lift, or `--text` for one inline | |
 | | `--depth` | how far the heaviest glyph stands out, in cell widths | `8` |
 | `scene` | `--shape` | `sphere`, `torus`, `cube` or `knot` | `torus` |
@@ -188,7 +243,14 @@ turns over one loop, or `--still` for none. Anything that loops takes `--period`
 how many seconds one loop lasts, which is the whole clip unless less is asked
 for.
 
-`media` and `gen2d` both take the reading:
+`ascii` and `scene` also take the movement:
+
+| Flag | | Default |
+| --- | --- | --- |
+| `--motion` | `none`, `ripple`, `breathe` or `drift` | `none` |
+| `--amount` | how hard, from nothing to all of it | `0.35` |
+
+`loops`, `media` and `gen2d` all take the reading:
 
 | Flag | | Default |
 | --- | --- | --- |
@@ -211,8 +273,11 @@ src-tauri/src/
   lib.rs             the Tauri commands the window calls
   repl/              the command language behind the typed line
   art/
-    generators/      the four tools
+    generators/      the five tools
+      loops/         a file to a piece, and the two paths they take out of here
     filters/         post-processing — the seam is cut, nothing fills it yet
+    motion.rs        phase instead of a clock: easing, and noise round a circle
+    surface.rs       a surface cut from two parameters, and a tube round a curve
     read.rs          a picture read back as glyphs, shared by two tools
     canvas.rs        the character grid, and the ink ramp heights are read from
     glyphs.rs        which character a shaded cell comes out as
