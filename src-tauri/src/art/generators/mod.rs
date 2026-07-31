@@ -9,6 +9,8 @@
 //!   `AsciiMedia.swift`.
 //! - `gen2d`  — flow fields and noise, drawn with `tiny-skia`. New.
 //! - `loops`  — finished pieces, each one an animation that closes. New.
+//! - `spiral` — a wave winding out under a drift of particles, drawn as pixels
+//!   rather than as characters. New.
 
 pub mod ascii;
 pub mod gen2d;
@@ -16,3 +18,4 @@ pub mod loops;
 pub mod media;
 pub mod paper;
 pub mod scene;
+pub mod spiral;
