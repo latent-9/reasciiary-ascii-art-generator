@@ -20,6 +20,7 @@
 //! [ref]: https://github.com/Bleuje/processing-animations-code
 
 mod hilbert;
+mod sierpinski;
 mod sinusoids;
 
 use crate::art::canvas::{AsciiCanvas, CELL_ASPECT};
@@ -28,6 +29,13 @@ use crate::art::params::Params;
 use crate::art::read::{fine_size, Reader};
 
 use super::paper::Paper;
+
+/// Every piece the tool draws, in the order they were written.
+///
+/// One list, read by the error message and walked by the tests, so a piece that
+/// is not on it is neither offered to anyone who mistypes nor answerable for
+/// its loop.
+const PIECES: [&str; 3] = ["hilbert", "sinusoids", "sierpinski"];
 
 /// What the tool can draw, and everything that piece settled before it drew a
 /// frame.
@@ -44,6 +52,8 @@ enum Piece {
     Hilbert { order: u32, seed: u64 },
     /// Circles packed into the frame, each with a wave running through it.
     Sinusoids { discs: Vec<sinusoids::Disc> },
+    /// A gasket whose three copies slide round its corners.
+    Sierpinski { depth: u32, seed: u64 },
 }
 
 impl Piece {
@@ -56,7 +66,14 @@ impl Piece {
             "sinusoids" => Ok(Self::Sinusoids {
                 discs: sinusoids::pack(seed, params.usize("count", 28)?),
             }),
-            other => Err(format!("`{other}` is not a piece — try hilbert or sinusoids")),
+            "sierpinski" => Ok(Self::Sierpinski {
+                depth: sierpinski::depth(params.usize("depth", 4)?),
+                seed,
+            }),
+            other => Err(format!(
+                "`{other}` is not a piece — try one of {}",
+                PIECES.join(", ")
+            )),
         }
     }
 
@@ -64,6 +81,9 @@ impl Piece {
         match self {
             Self::Hilbert { order, seed } => hilbert::draw(paper, *order, phase, *seed, colored),
             Self::Sinusoids { discs } => sinusoids::draw(paper, discs, phase, colored),
+            Self::Sierpinski { depth, seed } => {
+                sierpinski::draw(paper, *depth, phase, *seed, colored)
+            }
         }
     }
 
@@ -133,10 +153,6 @@ pub fn build(params: &Params) -> Result<Generator, String> {
 mod tests {
     use super::*;
     use crate::art::canvas::SPACE;
-
-    /// Every piece the tool offers, so a new one cannot be added without
-    /// answering for the loop, the movement and the seed.
-    const PIECES: [&str; 2] = ["hilbert", "sinusoids"];
 
     fn piece(name: &str, seed: u64) -> Piece {
         Piece::named(name, &Params::default(), seed).expect("a piece by that name")
