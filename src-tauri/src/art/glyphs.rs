@@ -172,29 +172,32 @@ impl Alphabet {
     /// The character to draw `cell` with, whose samples run from 0 for unlit to
     /// 1 for fully lit.
     ///
-    /// Which of the two references applies depends on what is in the cell, and
+    /// `whole` says the solid covers every sample in the cell.
+    ///
+    /// Which of the two references applies depends on where the cell is, and
     /// neither does the other's job well. Least squares over bitmaps is the only
     /// thing that can find `/` for a sloped edge, but on the flat inside of a
     /// face it has nothing to lock onto: every candidate at roughly the right
     /// weight is wrong by roughly the same amount, so the winner is whichever
-    /// glyph happens to be most evenly spread, and a whole face comes out as one
-    /// character repeated. A ramp is the opposite — it grades a face properly
-    /// and cannot represent an edge at all.
+    /// glyph happens to be most evenly spread. A ramp is the opposite — it
+    /// grades a face properly and cannot represent an edge at all.
     ///
-    /// So: a cell that varies inside itself is an edge, and gets matched; a cell
-    /// that does not is interior, and gets the ramp.
-    pub fn nearest(&self, cell: &Cell) -> u8 {
-        let mut lightest = f32::INFINITY;
-        let mut heaviest = f32::NEG_INFINITY;
-        let mut total = 0.0;
-        for &sample in cell.iter() {
-            lightest = lightest.min(sample);
-            heaviest = heaviest.max(sample);
-            total += sample;
-        }
-        let mean = total / CELL_PIXELS as f32;
-
-        if heaviest - lightest < STRUCTURE {
+    /// The two were told apart by how much the cell varied inside itself, on the
+    /// theory that a cell that varies is an edge. That holds for a smooth mesh.
+    /// It does not hold for a drawing lifted by ink coverage, because the solid
+    /// is terraced: a cap meets a wall inside cells all over the interior, and
+    /// most of them cleared the threshold. The middle of a face came out as a
+    /// scattering of `[`, `J`, `V` and `T` — the matcher answering honestly, but
+    /// about a staircase rather than about a silhouette, and what the eye does
+    /// with a row of letters is read it.
+    ///
+    /// Coverage settles it exactly and for nothing: the rasteriser already knows
+    /// which samples the solid reached. A cell it fills completely is interior,
+    /// whatever is happening inside it, and a cell it fills partly is on the
+    /// silhouette — which is the only place a traced edge belongs.
+    pub fn nearest(&self, cell: &Cell, whole: bool) -> u8 {
+        let mean = mean_of(cell);
+        if whole {
             return self.graded(mean);
         }
         self.matched(cell, mean)
@@ -302,22 +305,6 @@ fn direction_of(cell: &Cell, mean: f32) -> Option<Cell> {
     }
     Some(shape)
 }
-
-/// How much a cell has to vary inside itself before it counts as an edge.
-///
-/// Low enough that a silhouette is caught, high enough that the gentle slope
-/// across a lit face is not — a face graded by the ramp and a face picked out
-/// glyph by glyph look completely different, and the boundary between them
-/// should fall where the picture has one.
-///
-/// It is a difference between two brightnesses, so it only means anything
-/// relative to how much brightness there is to differ by. At `0.16` it was
-/// calibrated against a render that spanned `0.42` to `1.0`; the shading now
-/// runs from near nothing, the same geometry varies about twice as hard, and at
-/// the old figure half the interior of a solid crossed it. What came back was a
-/// mid-weight letter for every cell — a surface spelling out `{7%QMgj` instead
-/// of shading, which is a worse picture than either technique alone gives.
-const STRUCTURE: f32 = 0.34;
 
 /// `emilwidlund/ASCII`'s default set, which is its whole technique: characters
 /// "in brightness order dark -> light", indexed by brightness. Short enough that
@@ -457,7 +444,7 @@ mod tests {
     /// space here would punch a hole through the middle of a silhouette.
     #[test]
     fn even_an_unlit_cell_gets_a_mark() {
-        assert_eq!(ALPHABET.nearest(&[0.0; CELL_PIXELS]), b'.');
+        assert_eq!(ALPHABET.nearest(&[0.0; CELL_PIXELS], true), b'.');
         assert!(ALPHABET
             .ramp
             .iter()
@@ -492,7 +479,7 @@ mod tests {
     /// A patch that is lit everywhere wants a glyph that covers everywhere.
     #[test]
     fn a_fully_lit_cell_is_a_heavy_glyph() {
-        let glyph = ALPHABET.nearest(&[1.0; CELL_PIXELS]);
+        let glyph = ALPHABET.nearest(&[1.0; CELL_PIXELS], true);
         assert!(
             b"@#%$&8BMW".contains(&glyph),
             "a solid patch came back as `{}`",
@@ -515,8 +502,8 @@ mod tests {
             falling[y * CELL_PIXELS_WIDE + (CELL_PIXELS_WIDE - 1 - x)] = 1.0;
         }
 
-        assert_eq!(ALPHABET.nearest(&rising), b'/');
-        assert_eq!(ALPHABET.nearest(&falling), b'\\');
+        assert_eq!(ALPHABET.nearest(&rising, false), b'/');
+        assert_eq!(ALPHABET.nearest(&falling, false), b'\\');
     }
 
     /// Where in the cell the light is has to matter, not just how much of it
@@ -528,7 +515,7 @@ mod tests {
             for x in 0..CELL_PIXELS_WIDE {
                 cell[index * CELL_PIXELS_WIDE + x] = 1.0;
             }
-            ALPHABET.nearest(&cell)
+            ALPHABET.nearest(&cell, false)
         };
         let low = row(CELL_PIXELS_TALL - 3);
         let high = row(1);

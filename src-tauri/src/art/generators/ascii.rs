@@ -662,27 +662,32 @@ impl Surface {
             .for_each(|(row, line)| {
                 let mut cell = [0f32; CELL_PIXELS];
                 for (column, glyph) in line.iter_mut().enumerate() {
-                    // Whether the solid reaches this cell, which the depth
+                    // How much of this cell the solid reaches, which the depth
                     // buffer knows exactly. Asking the shading instead — "did
                     // any light land here?" — cannot tell a hole from a face
                     // pointing away from every lamp, and that conflation is what
                     // the ambient floor used to exist to paper over.
-                    let mut covered = false;
+                    //
+                    // None of it is background. All of it is interior and gets
+                    // graded. Anything between is the silhouette and gets its
+                    // edge traced — see [`Alphabet::nearest`].
+                    let mut covered = 0;
                     for y in 0..CELL_PIXELS_TALL {
                         let from = (row * CELL_PIXELS_TALL + y) * self.width
                             + column * CELL_PIXELS_WIDE;
                         let into = y * CELL_PIXELS_WIDE;
-                        covered |= self.depths[from..from + CELL_PIXELS_WIDE]
+                        covered += self.depths[from..from + CELL_PIXELS_WIDE]
                             .iter()
-                            .any(|depth| depth.is_finite());
+                            .filter(|depth| depth.is_finite())
+                            .count();
                         cell[into..into + CELL_PIXELS_WIDE]
                             .copy_from_slice(&self.shade[from..from + CELL_PIXELS_WIDE]);
                     }
                     // Most of a frame is empty background, and matching it
                     // against ninety-four glyphs to be told it is a space is the
                     // single biggest cost in here.
-                    if covered {
-                        *glyph = ALPHABET.nearest(&cell);
+                    if covered > 0 {
+                        *glyph = ALPHABET.nearest(&cell, covered == CELL_PIXELS);
                     }
                 }
             });
