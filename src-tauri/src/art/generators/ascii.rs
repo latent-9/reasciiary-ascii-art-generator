@@ -428,6 +428,21 @@ const KEY: Vector3 = Vector3::new(-0.45, 0.65, 1.0);
 const FILL: Vector3 = Vector3::new(0.85, 0.15, 0.45);
 const BACK: Vector3 = Vector3::new(0.15, -0.70, 0.25);
 
+/// Directions the rig's range is measured over: this many rings from the equator
+/// up to the eye, each of this many steps around. How brightly a face can be lit
+/// depends on where it points and nothing else, so the range belongs to the rig
+/// rather than to any drawing and is worth finding once, properly.
+const PROBE_RINGS: usize = 32;
+const PROBE_SPOKES: usize = 96;
+
+/// How much light a face pointing along `normal` collects from the rig.
+fn diffuse(lights: &[Light], normal: Vector3) -> f64 {
+    lights
+        .iter()
+        .map(|light| light.strength * normal.dot(light.direction).max(0.0))
+        .sum()
+}
+
 /// Projects a solid onto a character grid with a depth buffer.
 pub struct Renderer {
     pub solid: Solid,
@@ -442,6 +457,16 @@ pub struct Renderer {
     /// brightest part of a render never asks for the heaviest character and the
     /// top of the alphabet goes unused.
     peak: f64,
+    /// And the dimmest, over the same normals [`Self::tone`] is ever handed.
+    ///
+    /// Only the peak was measured, and the bottom of the range was left wherever
+    /// the rig happened to drop it. That turned out to be a quarter of the way
+    /// up: the darkest face in a frame arrived already lit, every shade in a
+    /// render fell between 0.39 and 0.90, and the five faintest characters were
+    /// never once asked for. A form graded through the heavy end of an alphabet
+    /// reads as a bright mass with some modulation over it — the shading is
+    /// doing its work and the ramp is throwing most of it away.
+    floor: f64,
     /// How dark the darkest part of the solid is allowed to get.
     ///
     /// This used to be a floor holding the whole model up in the heavy end of
@@ -490,11 +515,25 @@ impl Renderer {
                 )
             })
             .normalized();
-        let peak = lights
-            .iter()
-            .map(|light| light.strength * brightest.dot(light.direction).max(0.0))
-            .sum::<f64>()
-            .max(1e-6);
+        let peak = diffuse(&lights, brightest).max(1e-6);
+
+        // The darkest normal is not the mirror of the brightest. Every face is
+        // turned to look at the eye before it is lit, so the normals this rig is
+        // ever asked about are the hemisphere in front of the picture, and three
+        // lights all aimed into that hemisphere leave even its worst-placed
+        // member some light. Sweeping it is the only honest way to find the
+        // bottom, and it costs one loop at load.
+        let floor = (0..PROBE_RINGS)
+            .flat_map(|ring| (0..PROBE_SPOKES).map(move |spoke| (ring, spoke)))
+            .map(|(ring, spoke)| {
+                let height = ring as f64 / PROBE_RINGS as f64;
+                let radius = (1.0 - height * height).sqrt();
+                let angle = TAU * spoke as f64 / PROBE_SPOKES as f64;
+                let normal =
+                    Vector3::new(radius * angle.cos(), radius * angle.sin(), height);
+                diffuse(&lights, normal)
+            })
+            .fold(peak, f64::min);
 
         Self {
             solid,
@@ -502,6 +541,7 @@ impl Renderer {
             pitch: 0.0,
             zoom: 1.0,
             peak,
+            floor: floor.min(peak - 1e-6),
             lights,
             ambient: 0.08,
             specular: 0.30,
@@ -620,14 +660,17 @@ impl Renderer {
         // read as one flat mass.
         let normal = if normal.z < 0.0 { normal.negated() } else { normal };
 
-        let mut diffuse = 0.0;
         let mut highlight = 0.0;
         for light in &self.lights {
-            diffuse += light.strength * normal.dot(light.direction).max(0.0);
             highlight +=
                 light.strength * normal.dot(light.halfway).max(0.0).powf(self.shininess);
         }
-        let diffuse = (diffuse / self.peak).min(1.0);
+        // Stretched over the range the rig can actually reach a visible face
+        // through, so the darkest one in a frame lands at the bottom of the
+        // alphabet rather than a quarter of the way up it.
+        let diffuse = ((diffuse(&self.lights, normal) - self.floor)
+            / (self.peak - self.floor))
+            .clamp(0.0, 1.0);
         let highlight = (highlight / self.peak).min(1.0);
 
         // Light and nearness together, both running 0 to 1. `nearness` is
@@ -1039,6 +1082,33 @@ mod tests {
             "and it stands inside the silhouette, not on it: column {near} of {}",
             columns.len()
         );
+    }
+
+    /// Three lights all aimed into the hemisphere the eye can see lift even
+    /// their worst-placed face clear of dark, so a shade read against the peak
+    /// alone starts a quarter of the way up: the whole solid then grades through
+    /// the heavy end of the alphabet and the faint end goes unused. That reads
+    /// as a bright mass with some modulation over it rather than as a form,
+    /// however carefully the geometry underneath it is built.
+    #[test]
+    fn a_frame_grades_through_the_whole_alphabet() {
+        let mut renderer = Renderer::new(Solid::from_text(DIAMOND, 8.0));
+        renderer.pitch = 0.5;
+        let yaw = 0.6;
+        let rotation = Rotation::new(yaw, renderer.pitch);
+        let depth_extent = renderer.solid.bound.depth_extent(yaw, renderer.pitch);
+
+        let shades: Vec<f32> = renderer
+            .solid
+            .faces
+            .iter()
+            .map(|face| renderer.tone(rotation.apply(face.normal), depth_extent).base)
+            .collect();
+        let faintest = shades.iter().copied().fold(f32::INFINITY, f32::min);
+        let heaviest = shades.iter().copied().fold(0.0_f32, f32::max);
+
+        assert!(faintest < 0.35, "the turned-away side stays at {faintest}, nowhere near dark");
+        assert!(heaviest > 0.8, "and the lit side only reaches {heaviest}");
     }
 
     /// Blank lines at the end of a file are how it was saved, not part of the
