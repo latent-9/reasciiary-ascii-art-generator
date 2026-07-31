@@ -6,6 +6,7 @@ pub mod glyphs;
 pub mod motion;
 pub mod paint;
 pub mod params;
+pub mod raster;
 pub mod read;
 pub mod surface;
 
