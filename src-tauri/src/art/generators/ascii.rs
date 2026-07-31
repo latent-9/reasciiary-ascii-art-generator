@@ -82,7 +82,8 @@ impl Rotation {
     }
 }
 
-/// One flat face of the solid, carrying the normal it should be lit by.
+/// One flat face of the solid, carrying the normal it should be lit by and how
+/// much of the light around it ever reaches it.
 #[derive(Clone, Copy)]
 struct Face {
     a: Vector3,
@@ -90,6 +91,7 @@ struct Face {
     c: Vector3,
     d: Vector3,
     normal: Vector3,
+    openness: f64,
 }
 
 /// Yaws the fit is measured at. Fine enough that no corner slips between two of
@@ -250,27 +252,8 @@ fn build_faces(heights: &[f64], rows: usize, columns: usize) -> Vec<Face> {
     let half_height = (rows as f64 - 1.0) / 2.0;
     let half_cell = CELL_ASPECT / 2.0;
 
-    /// The drawing is struck *through* the slab rather than raised off a backing
-    /// plate: a column of ink height `h` runs from `-h/2` to `+h/2`, so the
-    /// solid straddles the origin by construction and both of its sides carry
-    /// the relief.
-    ///
-    /// The plate is what this had, and a plate is one flat quad with one normal
-    /// spanning the whole drawing. Head-on it hides behind the ink and costs
-    /// nothing. Turned past a quarter it *is* the picture — so half of every
-    /// spin arrived as a featureless slab, one character repeated across the
-    /// frame, however carefully the front had been lit. There is no angle a
-    /// struck relief has nothing to show at.
-    const fn surface(height: f64) -> f64 {
-        height / 2.0
-    }
-
-    let height = |row: i64, column: i64| -> f64 {
-        if row < 0 || row >= rows as i64 || column < 0 || column >= columns as i64 {
-            return 0.0;
-        }
-        surface(heights[row as usize * columns + column as usize])
-    };
+    let height = |row: i64, column: i64| -> f64 { surface(heights, rows, columns, row, column) };
+    let openness = openness(heights, rows, columns);
 
     // Which way the drawing is sloping under this cell, as the normal of that
     // slope. A cap used to be handed a flat `(0, 0, 1)` — true of the box it
@@ -314,6 +297,7 @@ fn build_faces(heights: &[f64], rows: usize, columns: usize) -> Vec<Face> {
             // across the picture and the opposite way through it.
             let near = slope(row as i64, column as i64);
             let far = Vector3::new(near.x, near.y, -near.z);
+            let sky = openness[row * columns + column];
             for (z, normal) in [(top, near), (-top, far)] {
                 faces.push(Face {
                     a: Vector3::new(x0, y0, z),
@@ -321,6 +305,7 @@ fn build_faces(heights: &[f64], rows: usize, columns: usize) -> Vec<Face> {
                     c: Vector3::new(x1, y1, z),
                     d: Vector3::new(x0, y1, z),
                     normal,
+                    openness: sky,
                 });
             }
 
@@ -331,16 +316,22 @@ fn build_faces(heights: &[f64], rows: usize, columns: usize) -> Vec<Face> {
             // neighbour rather than at nothing is what makes terraced art show
             // its steps.
             let walls = [
-                (height(row as i64, column as i64 - 1), Vector3::new(-1.0, 0.0, 0.0), (x0, y0), (x0, y1)),
-                (height(row as i64, column as i64 + 1), Vector3::new(1.0, 0.0, 0.0), (x1, y0), (x1, y1)),
-                (height(row as i64 - 1, column as i64), Vector3::new(0.0, 1.0, 0.0), (x0, y1), (x1, y1)),
-                (height(row as i64 + 1, column as i64), Vector3::new(0.0, -1.0, 0.0), (x0, y0), (x1, y0)),
+                ((0, -1), Vector3::new(-1.0, 0.0, 0.0), (x0, y0), (x0, y1)),
+                ((0, 1), Vector3::new(1.0, 0.0, 0.0), (x1, y0), (x1, y1)),
+                ((-1, 0), Vector3::new(0.0, 1.0, 0.0), (x0, y1), (x1, y1)),
+                ((1, 0), Vector3::new(0.0, -1.0, 0.0), (x0, y0), (x1, y0)),
             ];
 
-            for (neighbour, axis, p, q) in walls {
+            for ((down, across), axis, p, q) in walls {
+                let (row, column) = (row as i64, column as i64);
+                let neighbour = height(row + down, column + across);
                 if top <= neighbour {
                     continue;
                 }
+                // A wall faces the notch it drops into rather than the sky its
+                // own cell sees, so it takes what the two of them share.
+                let sky =
+                    (sky + sky_at(&openness, rows, columns, row + down, column + across)) / 2.0;
                 for (low, high, side) in [(neighbour, top, near), (-top, -neighbour, far)] {
                     faces.push(Face {
                         a: Vector3::new(p.0, p.1, low),
@@ -348,6 +339,7 @@ fn build_faces(heights: &[f64], rows: usize, columns: usize) -> Vec<Face> {
                         c: Vector3::new(q.0, q.1, high),
                         d: Vector3::new(p.0, p.1, high),
                         normal: bevelled(axis, side),
+                        openness: sky,
                     });
                 }
             }
@@ -355,6 +347,95 @@ fn build_faces(heights: &[f64], rows: usize, columns: usize) -> Vec<Face> {
     }
 
     faces
+}
+
+/// How far in front of the middle the cell's surface stands, and zero off the
+/// edge of the drawing.
+///
+/// The drawing is struck *through* the slab rather than raised off a backing
+/// plate: a column of ink height `h` runs from `-h/2` to `+h/2`, so the solid
+/// straddles the origin by construction and both of its sides carry the relief.
+///
+/// The plate is what this had, and a plate is one flat quad with one normal
+/// spanning the whole drawing. Head-on it hides behind the ink and costs
+/// nothing. Turned past a quarter it *is* the picture — so half of every spin
+/// arrived as a featureless slab, one character repeated across the frame,
+/// however carefully the front had been lit. There is no angle a struck relief
+/// has nothing to show at.
+fn surface(heights: &[f64], rows: usize, columns: usize, row: i64, column: i64) -> f64 {
+    if row < 0 || row >= rows as i64 || column < 0 || column >= columns as i64 {
+        return 0.0;
+    }
+    heights[row as usize * columns + column as usize] / 2.0
+}
+
+/// How open a cell is, and a clear sky off the edge of the drawing — there is
+/// nothing out there to stand in the light's way.
+fn sky_at(openness: &[f64], rows: usize, columns: usize, row: i64, column: i64) -> f64 {
+    if row < 0 || row >= rows as i64 || column < 0 || column >= columns as i64 {
+        return 1.0;
+    }
+    openness[row as usize * columns + column as usize]
+}
+
+/// How much of the sky each cell of the drawing can still see, in reading order.
+///
+/// The light so far has only asked which way a surface faces. That is the whole
+/// of direct lighting and it is blind to the one thing relief is made of: a cell
+/// down a pit and a cell out on a plateau can face the same way, take the same
+/// shade, and come out the same character. So the dish in the middle of a
+/// drawing renders no darker than its rim, terraces show only where their slope
+/// happens to change, and the picture flattens into a map of its own gradients.
+///
+/// A heightfield answers this directly, with no rays and no second pass over the
+/// geometry. A neighbour standing `rise` above a cell `run` away walls off
+/// everything below `rise / run`, so the steepest ratio along a direction is how
+/// far the sky is closed off that way. Averaged over the directions and taken
+/// off one, that is how open the cell is.
+///
+/// It belongs to the drawing rather than to the angle it is seen from, which is
+/// the point: it is still there at the yaws where the direct light has nothing
+/// left to separate.
+fn openness(heights: &[f64], rows: usize, columns: usize) -> Vec<f64> {
+    /// Compass directions, and how far along each one a blocker is still worth
+    /// looking for. Past a few cells a rise has to be enormous to shade anything.
+    const STEPS: [(i64, i64); 8] =
+        [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (-1, 1), (1, -1), (1, 1)];
+    const HORIZON: i64 = 3;
+    /// How dark a fully walled-in cell goes. All the way to nothing is a hole
+    /// punched in the drawing rather than a shadow in it.
+    const DEPTH: f64 = 0.55;
+
+    (0..rows)
+        .flat_map(|row| (0..columns).map(move |column| (row as i64, column as i64)))
+        .map(|(row, column)| {
+            let here = surface(heights, rows, columns, row, column);
+            let closed = STEPS
+                .iter()
+                .map(|(down, across)| {
+                    // Columns sit one apart and rows `CELL_ASPECT`, so a step
+                    // up the picture is a longer walk than a step across it.
+                    let run = ((*across as f64).powi(2)
+                        + (*down as f64 * CELL_ASPECT).powi(2))
+                    .sqrt();
+                    (1..=HORIZON)
+                        .map(|step| {
+                            let there = surface(
+                                heights,
+                                rows,
+                                columns,
+                                row + down * step,
+                                column + across * step,
+                            );
+                            ((there - here) / (run * step as f64)).clamp(0.0, 1.0)
+                        })
+                        .fold(0.0, f64::max)
+                })
+                .sum::<f64>()
+                / STEPS.len() as f64;
+            1.0 - DEPTH * closed
+        })
+        .collect()
 }
 
 /// A wall's normal, rolled off the face it descends from.
@@ -459,13 +540,13 @@ pub struct Renderer {
     peak: f64,
     /// And the dimmest, over the same normals [`Self::tone`] is ever handed.
     ///
-    /// Only the peak was measured, and the bottom of the range was left wherever
-    /// the rig happened to drop it. That turned out to be a quarter of the way
-    /// up: the darkest face in a frame arrived already lit, every shade in a
-    /// render fell between 0.39 and 0.90, and the five faintest characters were
-    /// never once asked for. A form graded through the heavy end of an alphabet
-    /// reads as a bright mass with some modulation over it — the shading is
-    /// doing its work and the ramp is throwing most of it away.
+    /// Only the peak was measured once, and the bottom of the range was left
+    /// wherever the rig happened to drop it. That turned out to be a quarter of
+    /// the way up: the darkest face in a frame arrived already lit, every shade
+    /// in a render fell between 0.39 and 0.90, and the five lightest characters
+    /// were never once asked for. A form graded through the top half of an
+    /// alphabet reads as a bright mass with some modulation over it — the
+    /// shading is doing its work and the ramp is throwing most of it away.
     floor: f64,
     /// How dark the darkest part of the solid is allowed to get.
     ///
@@ -617,7 +698,7 @@ impl Renderer {
         let depth_extent = self.solid.bound.depth_extent(yaw, self.pitch);
         for face in &self.solid.faces {
             let normal = rotation.apply(face.normal);
-            let tone = self.tone(normal, depth_extent);
+            let tone = self.tone(normal, face.openness, depth_extent);
 
             let a = project(face.a);
             let b = project(face.b);
@@ -648,7 +729,7 @@ impl Renderer {
     /// `shade = base + gain * z` — depth cueing is the only part that varies
     /// across a flat face, and it varies linearly, so the per-sample work in the
     /// rasteriser stays one multiply and one add.
-    fn tone(&self, normal: Vector3, depth_extent: f64) -> Tone {
+    fn tone(&self, normal: Vector3, openness: f64, depth_extent: f64) -> Tone {
         // Back faces are deliberately not culled. A struck relief is open work:
         // every space in the drawing is a hole clean through it, so the far side
         // of the solid is visible through the near one and culling would tear
@@ -677,13 +758,18 @@ impl Renderer {
         // `(z / depth_extent + 1) / 2`, which is affine in z — so the whole
         // shade stays affine in z and the rasteriser's per-sample work is one
         // multiply and one add.
+        //
+        // Only the light is shut out by what stands around the face. Nearness is
+        // the camera's business and a face in a pit is no further away for being
+        // in one.
         let cue = self.depth_cueing;
-        let lit = (1.0 - cue) * diffuse + cue * 0.5 + self.specular * highlight;
+        let lit =
+            openness * ((1.0 - cue) * diffuse + self.specular * highlight) + cue * 0.5;
 
         // Everything the solid covers starts at `ambient` and climbs from there,
         // over very nearly the whole range the alphabet can draw.
         Tone {
-            base: (self.ambient + (1.0 - self.ambient) * lit) as f32,
+            base: (openness * self.ambient + (1.0 - self.ambient) * lit) as f32,
             gain: ((1.0 - self.ambient) * cue / (2.0 * depth_extent)) as f32,
         }
     }
@@ -1102,7 +1188,9 @@ mod tests {
             .solid
             .faces
             .iter()
-            .map(|face| renderer.tone(rotation.apply(face.normal), depth_extent).base)
+            .map(|face| {
+                renderer.tone(rotation.apply(face.normal), face.openness, depth_extent).base
+            })
             .collect();
         let faintest = shades.iter().copied().fold(f32::INFINITY, f32::min);
         let heaviest = shades.iter().copied().fold(0.0_f32, f32::max);
@@ -1239,6 +1327,25 @@ mod tests {
         assert!(
             inner.iter().all(|normal| normal.y.abs() < 1e-9),
             "the ramp does not run up the picture, so nothing should lean that way"
+        );
+    }
+
+    /// Which way a face points is the whole of direct light, and it cannot tell
+    /// the floor of a pit from the same floor out in the open: both look at the
+    /// sky, both take the same shade, both come out the same character. What
+    /// stands around a cell is the other half of the answer, and it is the half
+    /// that keeps working at the angles where the light has nothing left to
+    /// separate.
+    #[test]
+    fn a_cell_walled_in_by_its_neighbours_sees_less_sky() {
+        let mut heights = vec![9.0; 25];
+        heights[12] = 0.5;
+        let sky = openness(&heights, 5, 5);
+
+        assert!(sky[12] < 0.6, "a pit should be shut in, not merely dimmed: {}", sky[12]);
+        assert!(
+            sky.iter().enumerate().all(|(cell, open)| cell == 12 || *open > 0.99),
+            "and nothing on a flat plateau should be shaded at all: {sky:?}"
         );
     }
 
