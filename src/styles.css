@@ -45,10 +45,23 @@
 
   --bg: var(--paper);
   --fg: var(--ink);
-  --panel: color-mix(in srgb, var(--paper) 94%, var(--ink));
-  --line: color-mix(in srgb, var(--paper) 80%, var(--ink));
-  --dim: color-mix(in srgb, var(--paper) 42%, var(--ink));
+
+  /* A toolbar, a sidebar and a status bar sit a shade off the content they
+     border, the way the platform's own do, and are separated from it by a
+     hairline rather than by a rule anyone would notice. */
+  --chrome: color-mix(in srgb, var(--paper) 93%, var(--ink));
+  --line: color-mix(in srgb, var(--paper) 82%, var(--ink));
+  --dim: color-mix(in srgb, var(--paper) 45%, var(--ink));
   --accent: var(--ink);
+
+  /* A control that is pressed into the surface, and one that stands on it.
+     Between them they are most of what makes a button look like a button here:
+     the well behind a segmented picker, the cap on the segment that is on. */
+  --well: color-mix(in srgb, var(--ink) 9%, transparent);
+  --raised: color-mix(in srgb, var(--paper) 98%, var(--ink));
+  --lift: 0 1px 2px rgb(0 0 0 / 0.16), 0 0 0 0.5px rgb(0 0 0 / 0.07);
+
+  --toolbar-height: 52px;
 }
 
 * {
@@ -70,109 +83,66 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Traffic lights float over the content, so the drag strip is its own element
-   rather than a margin on the layout. */
-.titlebar {
-  position: fixed;
-  inset: 0 0 auto 0;
-  height: 30px;
-  z-index: 10;
-}
-
-.app {
+/* A bar over the content, a bar under it, and everything else between. */
+body {
   display: grid;
-  grid-template-columns: 250px 1fr;
-  height: 100%;
+  grid-template-rows: var(--toolbar-height) 1fr auto;
 }
 
-/* Panel */
+/* Toolbar */
 
-/* Render has to stay reachable however long the control list grows, so the
-   sections scroll and the footer does not. */
-.panel {
-  display: grid;
-  grid-template-rows: auto 1fr auto;
-  background: var(--panel);
-  border-right: 1px solid var(--line);
-  padding: 34px 14px 14px;
-  min-height: 0;
-}
-
-.panel-scroll {
-  overflow-y: auto;
-  scrollbar-width: none;
-  min-height: 0;
-}
-
-.panel-scroll::-webkit-scrollbar {
-  display: none;
-}
-
-.panel-footer {
-  padding-top: 12px;
-  border-top: 1px solid var(--line);
-}
-
-.brand {
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: var(--accent);
-  margin-bottom: 18px;
-}
-
-section {
-  margin-bottom: 18px;
-}
-
-h2 {
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  color: var(--dim);
-  margin-bottom: 8px;
-}
-
-label {
+/* The window has no title bar of its own, so this is both: what the traffic
+   lights are drawn over and what the window is dragged by. Which is why the
+   first thing in it is an empty box the width of the lights — anything put
+   there would sit underneath them. */
+.toolbar {
   display: flex;
-  justify-content: space-between;
-  font-size: 11px;
-  color: var(--dim);
-  margin: 8px 0 3px;
+  align-items: center;
+  gap: 10px;
+  padding: 0 12px;
+  background: color-mix(in srgb, var(--chrome) 88%, transparent);
+  backdrop-filter: saturate(180%) blur(20px);
+  border-bottom: 0.5px solid var(--line);
 }
 
-/* The number a slider is sitting on is the one thing in the panel worth
-   reading at a glance, so it carries the extra step on its own. */
-output {
-  font-weight: 600;
+.lights {
+  width: 62px;
+  flex: none;
+}
+
+.spacer {
+  flex: 1;
+  align-self: stretch;
+}
+
+/* The tool being used, which is the one choice the whole window hangs off, so
+   it is the first thing in the toolbar and the only segmented control in it. */
+.picker {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 9px;
+  background: var(--well);
+}
+
+.picker button {
+  border: none;
+  background: transparent;
+  border-radius: 7px;
+  padding: 5px 10px;
+  color: var(--dim);
+  box-shadow: none;
+}
+
+.picker button:hover {
   color: var(--fg);
 }
 
-/* Sliders */
-
-input[type="range"] {
-  width: 100%;
-  height: 3px;
-  appearance: none;
-  background: var(--line);
-  border-radius: 2px;
-  outline: none;
-}
-
-input[type="range"]::-webkit-slider-thumb {
-  appearance: none;
-  width: 11px;
-  height: 11px;
-  border-radius: 50%;
-  background: var(--accent);
-  cursor: pointer;
-  transition: transform 0.12s;
-}
-
-input[type="range"]::-webkit-slider-thumb:hover {
-  transform: scale(1.25);
+.picker button.on {
+  background: var(--raised);
+  color: var(--fg);
+  font-weight: 600;
+  box-shadow: var(--lift);
 }
 
 /* Buttons */
@@ -182,124 +152,65 @@ button {
   font-size: 11px;
   font-weight: 500;
   color: var(--fg);
-  background: transparent;
-  border: 1px solid var(--line);
-  border-radius: 6px;
-  padding: 7px 10px;
+  background: var(--raised);
+  border: 0.5px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 13px;
   cursor: pointer;
-  transition: border-color 0.12s, background 0.12s, color 0.12s;
+  box-shadow: var(--lift);
+  transition: filter 0.12s, opacity 0.12s;
 }
 
 button:hover {
-  border-color: var(--accent);
+  filter: brightness(1.06);
 }
 
-button.on {
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
-  border-color: var(--accent);
-  color: var(--accent);
-  font-weight: 600;
+button:active {
+  filter: brightness(0.94);
 }
 
-button.wide {
-  width: 100%;
-}
-
-button.primary {
+button.filled {
   background: var(--accent);
-  border-color: var(--accent);
-  color: var(--panel);
-  padding: 10px;
-  font-size: 12px;
+  border-color: transparent;
+  color: var(--paper);
   font-weight: 600;
-  margin-top: 4px;
-}
-
-button.primary:hover {
-  filter: brightness(1.12);
 }
 
 button:disabled {
-  opacity: 0.45;
+  opacity: 0.4;
   cursor: default;
   filter: none;
 }
 
-.segmented {
-  display: flex;
-  gap: 4px;
+button[hidden] {
+  display: none;
 }
 
-.segmented button {
-  flex: 1;
-  padding: 6px 0;
-}
-
-.file,
-.hint,
-.status {
-  font-size: 10px;
-  color: var(--dim);
-  margin-top: 7px;
-  line-height: 1.5;
-  word-break: break-all;
-}
-
-/* The only two colours in the window that are not mixed from the theme. A
-   render can be black on white or white on black, so these have to stay legible
-   against either — which rules out both the pale and the deep ends. */
-.status.error {
-  color: #e5484d;
-}
-
-.status.done {
-  color: #30a46c;
-}
-
-/* Stage */
-
-.stage {
-  display: flex;
-  flex-direction: column;
-  min-width: 0;
-  padding: 34px 16px 16px;
-}
-
-.bar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 12px;
-}
-
-.bar .hint {
-  margin: 0;
-  margin-left: auto;
-}
-
+/* Both of a scheme's colours at once, split down the middle. One dot could only
+   ever show half of what the button does. */
 .themes {
   display: flex;
   gap: 6px;
-  flex-wrap: wrap;
 }
 
-.themes button {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 10px;
-  padding: 5px 9px;
+.themes .swatch {
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border-radius: 50%;
+  border: 0.5px solid var(--line);
+  box-shadow: none;
 }
 
-/* The object's own colour. The three schemes are where a render starts, not the
-   whole of the choice, so this is a swatch you open rather than a fourth preset
-   — the point of it is that it is not one of a set. */
+.themes .swatch.on {
+  box-shadow: 0 0 0 1.5px var(--chrome), 0 0 0 3px var(--accent);
+}
+
+/* The three schemes are where a render starts, not the whole of the choice, so
+   this is a swatch you open rather than a fourth preset — the point of it is
+   that it is not one of a set. */
 .tint {
   display: flex;
-  align-items: center;
-  gap: 6px;
-  font-size: 10px;
-  color: var(--dim);
   cursor: pointer;
 }
 
@@ -322,18 +233,22 @@ button:disabled {
 }
 
 .tint input::-webkit-color-swatch {
-  border: 1px solid var(--line);
+  border: 0.5px solid var(--line);
   border-radius: 50%;
 }
 
-/* Both of a scheme's colours at once: the ink filled, the paper around it. One
-   dot could only ever show half of what the button does. */
-.swatch {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  outline: 2px solid;
-  outline-offset: 0;
+/* Stage and inspector */
+
+.app {
+  display: grid;
+  grid-template-columns: 1fr 258px;
+  min-height: 0;
+}
+
+.stage {
+  display: flex;
+  min-width: 0;
+  padding: 14px;
 }
 
 .screen {
@@ -343,8 +258,8 @@ button:disabled {
   justify-content: center;
   min-height: 0;
   background: var(--bg);
-  border: 1px solid var(--line);
-  border-radius: 10px;
+  border: 0.5px solid var(--line);
+  border-radius: 12px;
   overflow: hidden;
   cursor: grab;
   /* The preview is a block of text, and dragging across text selects it. */
@@ -353,6 +268,11 @@ button:disabled {
 
 .screen.turning {
   cursor: grabbing;
+}
+
+/* Nothing to turn, so nothing that says it can be turned. */
+.screen.still {
+  cursor: default;
 }
 
 /* Regular, against the heavier chrome around it. The exporter paints frames
@@ -366,4 +286,199 @@ button:disabled {
   line-height: var(--cell-line);
   white-space: pre;
   color: var(--object);
+}
+
+/* The options belong to whichever tool is chosen, so they are on the trailing
+   edge next to the thing they change rather than in a sidebar across the
+   window from it. */
+.inspector {
+  background: var(--chrome);
+  border-left: 0.5px solid var(--line);
+  padding: 14px;
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
+.inspector::-webkit-scrollbar {
+  display: none;
+}
+
+.blurb {
+  font-size: 10px;
+  line-height: 1.55;
+  color: var(--dim);
+  margin-bottom: 16px;
+}
+
+section {
+  margin-bottom: 18px;
+}
+
+h2 {
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--dim);
+  margin-bottom: 9px;
+}
+
+.control {
+  margin-bottom: 11px;
+}
+
+/* Name on the left, whatever sets it on the right — one shape for every kind of
+   row, so a column of them lines up however they are mixed. */
+.row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 20px;
+  font-size: 11px;
+  color: var(--dim);
+}
+
+/* The number a slider is sitting on is the one thing in the panel worth reading
+   at a glance, so it carries the extra weight on its own. */
+.row output {
+  font-weight: 600;
+  color: var(--fg);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Sliders */
+
+input[type="range"] {
+  width: 100%;
+  height: 3px;
+  margin-top: 3px;
+  appearance: none;
+  background: var(--well);
+  border-radius: 2px;
+  outline: none;
+}
+
+input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 3px rgb(0 0 0 / 0.32), 0 0 0 0.5px rgb(0 0 0 / 0.14);
+  cursor: pointer;
+  transition: transform 0.12s;
+}
+
+input[type="range"]::-webkit-slider-thumb:active {
+  transform: scale(1.1);
+}
+
+/* Popup buttons */
+
+.popup {
+  position: relative;
+  display: inline-flex;
+}
+
+.popup select {
+  appearance: none;
+  font-family: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--fg);
+  background: var(--raised);
+  border: 0.5px solid var(--line);
+  border-radius: 6px;
+  padding: 3px 20px 3px 8px;
+  box-shadow: var(--lift);
+  cursor: pointer;
+}
+
+.popup::after {
+  content: "▾";
+  position: absolute;
+  right: 7px;
+  top: 50%;
+  transform: translateY(-52%);
+  font-size: 9px;
+  color: var(--dim);
+  pointer-events: none;
+}
+
+/* Switches */
+
+.toggle {
+  position: relative;
+  width: 30px;
+  height: 18px;
+  flex: none;
+  cursor: pointer;
+}
+
+.toggle input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.toggle i {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--well);
+  transition: background 0.16s;
+}
+
+.toggle i::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.3);
+  transition: transform 0.16s;
+}
+
+.toggle input:checked + i {
+  background: var(--accent);
+}
+
+.toggle input:checked + i::after {
+  transform: translateX(12px);
+}
+
+/* Status bar */
+
+.statusbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 24px;
+  padding: 0 12px;
+  background: var(--chrome);
+  border-top: 0.5px solid var(--line);
+  font-size: 10px;
+  color: var(--dim);
+  white-space: nowrap;
+}
+
+.statusbar .file {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The only two colours in the window that are not mixed from the theme. A
+   render can be black on white or white on black, so these have to stay legible
+   against either — which rules out both the pale and the deep ends. */
+.status.error {
+  color: #e5484d;
+}
+
+.status.done {
+  color: #30a46c;
 }
