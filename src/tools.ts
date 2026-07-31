@@ -1,11 +1,11 @@
 /// What each tool takes, in the tool's own terms.
 ///
 /// The window used to be the ascii tool's window: one file to open, one depth
-/// slider, one spin. Five tools later that shape does not hold — a flow field
+/// slider, one spin. Four tools later that shape does not hold — a flow field
 /// has no depth, a picture has no spin — and writing each one's controls into
 /// the markup by hand would put the same list in three places and let them
 /// drift. So what a tool takes is written down here as data, and the panel is
-/// built from it. Adding the sixth tool is an entry in this table.
+/// built from it. Adding the next tool is an entry in this table.
 ///
 /// Every `flag` is the name the backend already reads, so nothing translates
 /// between here and `Params`; a control is a flag with a range around it.
@@ -122,31 +122,6 @@ export const TOOLS: Tool[] = [
         controls: [{ kind: "range", flag: "depth", label: "Depth", min: 1, max: 40, step: 1, value: 8 }],
       },
       { title: "Motion", controls: [STILL] },
-    ],
-  },
-  {
-    name: "wave",
-    label: "Wave",
-    blurb: "A travelling relief a formula fills, looping exactly.",
-    camera: { yaw: 0, pitch: 52, zoom: 0.92 },
-    groups: [
-      {
-        title: "Relief",
-        controls: [
-          { kind: "range", flag: "cells", label: "Cells", min: 16, max: 256, step: 8, value: 96 },
-          { kind: "range", flag: "depth", label: "Depth", min: 1, max: 30, step: 1, value: 9 },
-          { kind: "range", flag: "rings", label: "Rings", min: 0, max: 8, step: 0.5, value: 3 },
-          { kind: "range", flag: "arms", label: "Arms", min: 0, max: 8, step: 1, value: 2 },
-        ],
-      },
-      {
-        title: "Motion",
-        controls: [
-          { kind: "range", flag: "period", label: "Loop", min: 1, max: 20, step: 1, value: 6 },
-          { kind: "range", flag: "turns", label: "Turns", min: 0, max: 4, step: 0.25, value: 0 },
-          STILL,
-        ],
-      },
     ],
   },
   {

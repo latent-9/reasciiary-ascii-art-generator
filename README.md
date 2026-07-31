@@ -1,22 +1,20 @@
 # Asciiary
 
-Five tools that end in the same place: a grid of characters, lit, and written out
+Four tools that end in the same place: a grid of characters, lit, and written out
 as an MP4, a GIF, a PNG or more text.
 
 | Tool | |
 | --- | --- |
 | `ascii` | a `.txt` drawing lifted into a solid, ink for height |
-| `wave` | a travelling relief a formula fills |
 | `scene` | a sphere, torus, cube or knot cut from a formula and turned |
 | `media` | a picture or an animation quantised to glyphs |
 | `gen2d` | a flow field drawn in pixels and read back as glyphs |
 
-The renderers the first three borrow from all start with a mesh somebody
-modelled. `ascii` starts with a text file, so it needs one rule they do not: what
-the third dimension of a drawing actually *is*. The rule is ink. A glyph that
-fills more of its cell stands taller — `@` rises, `.` barely lifts, a space is a
-hole — and the result is lit, projected back onto a character grid, and written
-out.
+The renderers the first two borrow from all start with a mesh somebody modelled.
+`ascii` starts with a text file, so it needs one rule they do not: what the third
+dimension of a drawing actually *is*. The rule is ink. A glyph that fills more of
+its cell stands taller — `@` rises, `.` barely lifts, a space is a hole — and the
+result is lit, projected back onto a character grid, and written out.
 
 ## What the solid is
 
@@ -29,9 +27,8 @@ however carefully the front had been lit. Struck through, there is no angle with
 nothing to show, at the price of the drawing being open work: every space in it
 is a hole clean through.
 
-`wave` fills the same kind of heightfield from a formula instead of from a file,
-and `scene` skips the heightfield entirely — it hands the same renderer the quads
-a formula cuts, so a torus is a torus rather than a relief of one.
+`scene` skips the heightfield entirely — it hands the same renderer the quads a
+formula cuts, so a torus is a torus rather than a relief of one.
 
 ## Where the shade comes from
 
@@ -176,10 +173,6 @@ And its own on top:
 | --- | --- | --- | --- |
 | `ascii` | *(first word)* | the `.txt` to lift, or `--text` for one inline | |
 | | `--depth` | how far the heaviest glyph stands out, in cell widths | `8` |
-| `wave` | `--cells` | how fine the relief is sampled | `96` |
-| | `--depth` | how far the crests stand out | `9` |
-| | `--rings` `--arms` | how many of each the formula lays down | `3` `2` |
-| | `--turns` | turns of the camera over one loop | `0` |
 | `scene` | `--shape` | `sphere`, `torus`, `cube` or `knot` | `torus` |
 | | `--steps` | segments around the form | `64` |
 | | `--thickness` | the tube's reach, against the body's | `0.42` |
@@ -191,8 +184,8 @@ And its own on top:
 | | `--seed` | which field | `7` |
 
 A tool that turns takes `--yaw` `--pitch` `--zoom` and either `--spin`, in
-radians a second, or `--still` for none. `wave` and `gen2d` take `--period`
-instead: how many seconds one loop lasts.
+radians a second, or `--still` for none. `gen2d` takes `--period` instead: how
+many seconds one loop lasts.
 
 `media` and `gen2d` both take the reading:
 
@@ -217,7 +210,7 @@ src-tauri/src/
   lib.rs             the Tauri commands the window calls
   repl/              the command language behind the typed line
   art/
-    generators/      the five tools
+    generators/      the four tools
     filters/         post-processing — the seam is cut, nothing fills it yet
     read.rs          a picture read back as glyphs, shared by two tools
     canvas.rs        the character grid, and the ink ramp heights are read from

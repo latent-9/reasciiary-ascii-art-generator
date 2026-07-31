@@ -63,7 +63,6 @@ pub type GeneratorFactory = fn(&Params) -> Result<Generator, String>;
 pub fn registry() -> &'static [(&'static str, GeneratorFactory)] {
     &[
         ("ascii", super::generators::ascii::build),
-        ("wave", super::generators::wave::build),
         ("scene", super::generators::scene::build),
         ("media", super::generators::media::build),
         ("gen2d", super::generators::gen2d::build),
