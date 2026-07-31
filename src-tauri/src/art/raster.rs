@@ -22,15 +22,6 @@ use image::{Rgba, RgbaImage};
 
 use super::generators::ascii::Vector3;
 
-/// How near the eye a point may come before it is cut away, as a part of the
-/// focal length.
-///
-/// Something has to be: a point level with the eye divides by nothing, and one
-/// behind it divides by a negative and lands on the picture upside down and on
-/// the wrong side, which is a plane that folds through the horizon rather than
-/// running to it. Small enough to keep everything anybody meant to draw.
-const NEAR: f64 = 0.02;
-
 /// The smallest a dot is drawn, in pixels of radius.
 ///
 /// Below this a dot falls between sample centres and comes and goes between
@@ -63,6 +54,8 @@ pub struct Raster {
     /// How far across the picture a thing one unit wide at one unit off would
     /// land, in pixels.
     focal: f64,
+    /// How near the eye a point may come before it is cut away, in world units.
+    near: f64,
     color: Vec<[f32; 3]>,
     /// Inverse distance, so nought is infinitely far and larger is nearer.
     nearness: Vec<f32>,
@@ -72,7 +65,18 @@ impl Raster {
     /// A picture of that many pixels, filled with `paper` and empty to the
     /// horizon. `field` is how much the eye takes in from top to bottom, in
     /// radians.
-    pub fn new(width: u32, height: u32, field: f64, paper: [f32; 3]) -> Self {
+    ///
+    /// `near` is how close a point may come before it is cut away, and it is
+    /// asked for rather than assumed because it is the one thing here that has
+    /// to be said in the tool's own units: the field and the focal length are a
+    /// question about the picture, but how near is too near is a question about
+    /// the world, and a raster is handed points without being told what a unit of
+    /// one is. Something has to answer it — a point level with the eye divides by
+    /// nothing, and one behind it divides by a negative and lands upside down on
+    /// the wrong side of the picture, which is a plane folding through the
+    /// horizon rather than running to it. A small part of however far off the
+    /// subject stands is the usual answer.
+    pub fn new(width: u32, height: u32, field: f64, near: f64, paper: [f32; 3]) -> Self {
         let (width, height) = (width.max(1) as usize, height.max(1) as usize);
         // The same lens Processing's default camera uses, written as what it
         // means rather than as the eye distance it is usually given as.
@@ -81,6 +85,7 @@ impl Raster {
             width,
             height,
             focal,
+            near: near.max(f64::MIN_POSITIVE),
             color: vec![paper; width * height],
             nearness: vec![0.0; width * height],
         }
@@ -96,7 +101,7 @@ impl Raster {
     /// behind it. What is cut away is replaced by the edge of what is not, so a
     /// surface running past the camera keeps its shape up to where it leaves.
     pub fn triangle(&mut self, corners: [Seen; 3], tint: [f32; 3]) {
-        let kept = clipped(corners, self.focal * NEAR);
+        let kept = clipped(corners, self.near);
         // A polygon of four is the most a triangle can be cut into, and a fan
         // off its first corner covers it.
         for step in 1..kept.len().saturating_sub(1) {
@@ -111,7 +116,7 @@ impl Raster {
     /// Its size is the perspective divide and nothing else, so a particle far
     /// down the surface is small for the reason it looks small.
     pub fn dot(&mut self, at: Seen, radius: f64, tint: [f32; 3], alpha: f64) {
-        if at.z < self.focal * NEAR || radius <= 0.0 || alpha <= 0.0 {
+        if at.z < self.near || radius <= 0.0 || alpha <= 0.0 {
             return;
         }
         let middle = self.plot(at);
@@ -269,8 +274,11 @@ mod tests {
     const BLACK: [f32; 3] = [0.0, 0.0, 0.0];
     const WHITE: [f32; 3] = [1.0, 1.0, 1.0];
 
+    /// Small in pixels, and looking at a world measured in tens of units.
+    const NEAR: f64 = 1.0;
+
     fn raster() -> Raster {
-        Raster::new(64, 64, FIELD, BLACK)
+        Raster::new(64, 64, FIELD, NEAR, BLACK)
     }
 
     /// A square straddling the middle of the picture, `away` off the eye.
@@ -390,9 +398,31 @@ mod tests {
         assert!(raster.into_image().pixels().all(|pixel| pixel.0[0] == 0));
     }
 
+    /// Asking for more pixels is asking for the same picture drawn larger, not
+    /// for a different world.
+    ///
+    /// The near plane is the one number here that could be mistaken for a length
+    /// on the picture, and reading it as one would have the same scene lose more
+    /// of itself the larger it was asked for — a preview that worked and an
+    /// export that came out empty.
+    #[test]
+    fn the_near_plane_is_a_distance_in_the_world_not_on_the_picture() {
+        let lit = |side: u32| {
+            let mut raster = Raster::new(side, side, FIELD, NEAR, BLACK);
+            for face in wall(5.0) {
+                raster.triangle(face, WHITE);
+            }
+            let image = raster.into_image();
+            let middle = side / 2;
+            image.get_pixel(middle, middle).0[0]
+        };
+        assert_eq!(lit(64), 255);
+        assert_eq!(lit(512), 255);
+    }
+
     #[test]
     fn the_paper_is_what_nothing_was_drawn_on() {
-        let raster = Raster::new(8, 8, FIELD, [0.2, 0.4, 0.6]);
+        let raster = Raster::new(8, 8, FIELD, NEAR, [0.2, 0.4, 0.6]);
         assert_eq!(raster.into_image().get_pixel(4, 4).0, [51, 102, 153, 255]);
     }
 }
