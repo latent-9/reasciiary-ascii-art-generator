@@ -239,13 +239,7 @@ impl GlyphGenerator for Modelled {
 pub fn build(params: &Params) -> Result<Generator, String> {
     let name = params.string("piece").unwrap_or("hilbert");
     let piece = Piece::named(name, params, params.seed(7)?)?;
-    // A piece is one loop by default, so the clip is the piece rather than the
-    // piece repeated a few times inside a clip. Asking for a period shorter
-    // than the export is how it gets repeated on purpose.
-    let period = params.f64("period", params.f64("duration", 4.0)?)?;
-    if period <= 0.0 {
-        return Err("--period is how many seconds a loop takes, so it has to be positive".into());
-    }
+    let period = params.period()?;
     let still = params.is_set("still");
 
     Ok(Generator::Glyph(match piece {

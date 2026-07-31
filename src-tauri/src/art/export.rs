@@ -281,15 +281,15 @@ mod tests {
 
     #[test]
     fn an_export_covers_the_loops_its_length_has_room_for() {
-        // A four second file at the default 1.2 rad/s spin, whose loop is 5.2s.
+        // A four second file of something that takes 5.2s to come round.
         assert_eq!(whole_loops(5.24, 4.0), 1);
-        // Thirty seconds at the fastest spin the window offers.
+        // Thirty seconds of the shortest loop the window offers.
         assert_eq!(whole_loops(1.57, 30.0), 19);
         assert_eq!(whole_loops(2.0, 10.0), 5);
     }
 
     /// A file has to move. Rounding down to nothing would write a frozen frame
-    /// from a control that plainly says it is spinning.
+    /// from a control that plainly says it is turning.
     #[test]
     fn a_loop_too_slow_to_finish_still_finishes() {
         assert_eq!(whole_loops(62.8, 1.0), 1);

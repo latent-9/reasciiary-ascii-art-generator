@@ -106,9 +106,9 @@ async fn preview(request: Request, time: f64) -> Result<String, String> {
 /// Everything the window needs to mirror what an export will do, so the preview
 /// is the frame that gets written rather than something near it.
 ///
-/// The rate is not simply the spin the sliders carry: an export is rounded to a
+/// The rate is not simply the loop the sliders carry: an export is rounded to a
 /// whole number of loops so it can end where it began, and the preview has to
-/// be rounded the same way or the window shows a spin nothing ever writes.
+/// be rounded the same way or the window shows a motion nothing ever writes.
 #[derive(serde::Serialize)]
 pub struct Plan {
     /// Seconds of generator time in one full loop. `null` for a still.
@@ -183,7 +183,7 @@ async fn sequence(request: Request) -> Result<Film, String> {
             return Ok(Film { frames: vec![generator.canvas(columns, rows, 0.0).text()], fps: 1.0 });
         };
 
-        // Enough that a fast spin still reads as motion, few enough that a slow
+        // Enough that a short loop still reads as motion, few enough that a long
         // one is not a thousand renders nobody asked for. Whatever the count
         // ends up being, the rate is set to match it, so one pass is one loop.
         let count = ((period * requested).round() as usize).clamp(24, 240);

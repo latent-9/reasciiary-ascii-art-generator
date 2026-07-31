@@ -150,7 +150,7 @@ The same pipeline, driven by a typed line. The whole line is one argument, quote
 — the `>` belongs to the command language rather than to the shell:
 
 ```sh
-cargo run --bin asciiary -- "ascii logo.txt --depth 12 --spin 2 > out.mp4"
+cargo run --bin asciiary -- "ascii logo.txt --depth 12 --turns 3 > out.mp4"
 ```
 
 A line is a source, the filters it flows through, and where the result lands. The
@@ -183,9 +183,10 @@ And its own on top:
 | | `--grain` `--swirl` | how fine the field is, and how hard it turns | `1.3` `1.0` |
 | | `--seed` | which field | `7` |
 
-A tool that turns takes `--yaw` `--pitch` `--zoom` and either `--spin`, in
-radians a second, or `--still` for none. `gen2d` takes `--period` instead: how
-many seconds one loop lasts.
+A tool that turns takes `--yaw` `--pitch` `--zoom` and either `--turns`, whole
+turns over one loop, or `--still` for none. Anything that loops takes `--period`:
+how many seconds one loop lasts, which is the whole clip unless less is asked
+for.
 
 `media` and `gen2d` both take the reading:
 

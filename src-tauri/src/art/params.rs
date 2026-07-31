@@ -45,6 +45,22 @@ impl Params {
         }
     }
 
+    /// How many seconds one loop takes, which is the whole clip unless asked
+    /// otherwise.
+    ///
+    /// Every animated tool here wants the same answer, and wants it in the same
+    /// shape: the movement is the piece, so one loop is the clip, and asking for
+    /// a shorter period is how the piece gets repeated inside it on purpose. A
+    /// period of nought is a division by nought wherever it lands, so it is
+    /// refused here rather than at each of the places it would land.
+    pub fn period(&self) -> Result<f64, String> {
+        let period = self.f64("period", self.f64("duration", 4.0)?)?;
+        if period <= 0.0 {
+            return Err("--period is how many seconds a loop takes, so it has to be positive".into());
+        }
+        Ok(period)
+    }
+
     /// Reproducibility is a new concept here — nothing in the Swift original
     /// used randomness. Any generator that does must route it through this, so
     /// a piece worth keeping can be drawn again.

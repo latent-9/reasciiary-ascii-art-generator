@@ -174,30 +174,10 @@ function buildThemes() {
 
 const title = (word: string) => word[0].toUpperCase() + word.slice(1);
 
-/// The tool's own groups, plus the two rows that are nobody's tool flag: the
-/// turn count a spin rate is worked out from, and what the export writes.
+/// The tool's own groups, plus the one group that is nobody's tool flag: what
+/// the export writes.
 function panelGroups(tool: Tool): Group[] {
-  const turns = tool.turns;
-  const groups = tool.groups.map((group) =>
-    group.title === "Motion" && turns
-      ? {
-          title: group.title,
-          controls: [
-            {
-              kind: "range" as const,
-              flag: "turns",
-              label: "Turns",
-              min: 0,
-              max: turns.max,
-              step: 0.25,
-              value: turns.value,
-            },
-            ...group.controls,
-          ],
-        }
-      : group,
-  );
-  return [...groups, OUTPUT];
+  return [...tool.groups, OUTPUT];
 }
 
 function row(label: string, control: HTMLElement) {
@@ -332,13 +312,6 @@ function request(withOutput?: string) {
 
   const flags: Record<string, string> = { ...here.values };
 
-  // The backend turns at radians a second. Whole turns over the clip is the
-  // same number said in the units somebody choosing one actually has in mind,
-  // and it lands on a seamless loop by construction rather than by rounding.
-  if (tool.turns) {
-    flags.spin = ((Number(flags.turns ?? 0) * 2 * Math.PI) / seconds).toFixed(4);
-    delete flags.turns;
-  }
   if (tool.camera) {
     flags.yaw = String(Math.round(here.camera.yaw));
     flags.pitch = String(Math.round(here.camera.pitch));

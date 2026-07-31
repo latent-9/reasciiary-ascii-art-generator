@@ -58,11 +58,6 @@ export type Tool = {
   blurb: string;
   source?: Source;
   camera?: Camera;
-  /// Set on a tool whose flag is a rate in radians a second. The panel shows
-  /// whole turns over the clip instead, because that is the number somebody
-  /// choosing one actually has in mind, and it lands on a seamless loop by
-  /// construction rather than by rounding.
-  turns?: { max: number; value: number };
   groups: Group[];
 };
 
@@ -107,6 +102,11 @@ const READING: Group = {
 };
 
 const STILL: Control = { kind: "switch", flag: "still", label: "Hold still", value: false };
+
+/// Whole turns over one loop, which is the number somebody choosing one
+/// actually has in mind. The backend turns by this over its period rather than
+/// at a rate, so every setting of it meets itself at the seam.
+const TURNS: Control = { kind: "range", flag: "turns", label: "Turns", min: 0, max: 8, step: 1, value: 2 };
 
 /// The window opens on whichever tool is first, so the first is the one that
 /// has something to show without being given anything: the pieces bring their
@@ -153,13 +153,12 @@ export const TOOLS: Tool[] = [
     blurb: "A .txt drawing lifted into a solid, ink for height.",
     source: { label: "ASCII drawing", extensions: ["txt", "asc", "ans"], sample: DIAMOND },
     camera: { yaw: 34, pitch: 29, zoom: 0.92 },
-    turns: { max: 8, value: 2 },
     groups: [
       {
         title: "Solid",
         controls: [{ kind: "range", flag: "depth", label: "Depth", min: 1, max: 40, step: 1, value: 8 }],
       },
-      { title: "Motion", controls: [STILL] },
+      { title: "Motion", controls: [TURNS, STILL] },
     ],
   },
   {
@@ -167,7 +166,6 @@ export const TOOLS: Tool[] = [
     label: "Solid",
     blurb: "A primitive cut from a formula and turned.",
     camera: { yaw: 0, pitch: 26, zoom: 0.92 },
-    turns: { max: 8, value: 2 },
     groups: [
       {
         title: "Shape",
@@ -191,7 +189,7 @@ export const TOOLS: Tool[] = [
           },
         ],
       },
-      { title: "Motion", controls: [STILL] },
+      { title: "Motion", controls: [TURNS, STILL] },
     ],
   },
   {

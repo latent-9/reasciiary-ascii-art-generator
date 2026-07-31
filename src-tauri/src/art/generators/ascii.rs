@@ -1130,45 +1130,49 @@ impl Surface {
     }
 }
 
-/// The animated tool: the solid spins about its vertical axis.
+/// The animated tool: the solid turns about its vertical axis.
 ///
-/// A full turn is the loop, so `loop_duration` is exactly the period. That is
-/// what lets the exporter sample a seamless GIF without the generator knowing
-/// it is being exported.
+/// A whole number of turns over one stated period, rather than so many radians
+/// a second. The two say the same thing, but only one of them closes: a rate
+/// leaves the loop's length to be worked out from it, and every rate somebody
+/// would actually pick divides the clip into a fraction of a turn and ends the
+/// GIF facing somewhere the first frame does not. Whole turns over a period
+/// meet by construction, and `loop_duration` is then the period itself.
 ///
 /// It says nothing about where the solid came from, so any tool whose whole
 /// animation is a turn can be this rather than write it out again.
-pub struct Spinning {
+pub struct Turning {
     renderer: Renderer,
-    spin_rate: f64,
+    period: f64,
+    /// Whole turns, rounded on the way in: a quarter of one is a quarter of the
+    /// way round at the seam.
+    turns: f64,
     still: bool,
 }
 
-impl Spinning {
-    /// `spin_rate` is radians a second; `still` holds the solid at the yaw the
+impl Turning {
+    /// `turns` whole turns over `period` seconds, either way round — a negative
+    /// count turns the other way. `still` holds the solid at the yaw the
     /// renderer already carries.
-    pub fn new(mut renderer: Renderer, spin_rate: f64, still: bool) -> Self {
-        renderer.spins = !still && spin_rate != 0.0;
-        Self { renderer, spin_rate, still }
+    pub fn new(mut renderer: Renderer, period: f64, turns: f64, still: bool) -> Self {
+        let turns = turns.round();
+        renderer.spins = !still && turns != 0.0;
+        Self { renderer, period, turns, still }
     }
 }
 
-impl GlyphGenerator for Spinning {
+impl GlyphGenerator for Turning {
     fn canvas(&self, columns: usize, rows: usize, time: f64) -> AsciiCanvas {
         let yaw = if self.still {
             self.renderer.yaw
         } else {
-            self.renderer.yaw + time * self.spin_rate
+            self.renderer.yaw + TAU * self.turns * (time / self.period)
         };
         self.renderer.canvas_at(columns, rows, yaw)
     }
 
     fn loop_duration(&self) -> Option<f64> {
-        if self.still || self.spin_rate.abs() < 1e-9 {
-            None
-        } else {
-            Some(TAU / self.spin_rate.abs())
-        }
+        (!self.still && self.turns != 0.0).then_some(self.period)
     }
 
     fn frame_aspect(&self) -> Option<f64> {
@@ -1236,9 +1240,10 @@ pub fn build(params: &Params) -> Result<Generator, String> {
     renderer.pitch = params.f64("pitch", 0.5_f64.to_degrees())?.to_radians();
     renderer.zoom = params.f64("zoom", 0.92)?;
 
-    Ok(Generator::Glyph(Box::new(Spinning::new(
+    Ok(Generator::Glyph(Box::new(Turning::new(
         renderer,
-        params.f64("spin", 1.2)?,
+        params.period()?,
+        params.f64("turns", 2.0)?,
         params.is_set("still"),
     ))))
 }
@@ -1443,27 +1448,23 @@ mod tests {
         assert!(Solid::from_text(" ", 8.0).faces.is_empty());
     }
 
-    /// A whole turn is the loop, and the exporter samples exactly that span. A
+    /// The turns are the loop, and the exporter samples exactly that span. A
     /// wrong answer here is a GIF with a visible jump at the seam.
     ///
-    /// The seam closes to within a few cells rather than exactly. `period *
-    /// spin_rate` lands one bit off `TAU`, and a cell where two faces meet at
-    /// the same depth then breaks its tie the other way. Five cells in five
-    /// hundred is invisible; the wrong period is not, which is what the second
-    /// half of this measures.
+    /// The seam closes to within a few cells rather than exactly. Three turns
+    /// of yaw land a bit or two off where they started, and a cell where two
+    /// faces meet at the same depth then breaks its tie the other way. Five
+    /// cells in five hundred is invisible; the wrong period is not, which is
+    /// what the second half of this measures.
     #[test]
-    fn a_spin_loops_over_one_full_turn() {
-        let spinning = Spinning {
-            renderer: Renderer::new(Solid::from_text(DIAMOND, 8.0)),
-            spin_rate: 1.2,
-            still: false,
-        };
-        let period = spinning.loop_duration().expect("a spin has a period");
-        assert!((period - TAU / 1.2).abs() < 1e-9);
+    fn whole_turns_land_back_where_they_started() {
+        let turning = Turning::new(Renderer::new(Solid::from_text(DIAMOND, 8.0)), 5.0, 3.0, false);
+        let period = turning.loop_duration().expect("a turn has a period");
+        assert_eq!(period, 5.0);
 
         let moved_after = |seconds: f64| {
-            let start = spinning.canvas(40, 14, 0.0);
-            let later = spinning.canvas(40, 14, seconds);
+            let start = turning.canvas(40, 14, 0.0);
+            let later = turning.canvas(40, 14, seconds);
             start
                 .glyphs
                 .iter()
@@ -1608,13 +1609,25 @@ mod tests {
 
     #[test]
     fn a_still_has_no_loop() {
-        let still = Spinning {
-            renderer: Renderer::new(Solid::from_text(DIAMOND, 8.0)),
-            spin_rate: 1.2,
-            still: true,
-        };
+        let still = Turning::new(Renderer::new(Solid::from_text(DIAMOND, 8.0)), 5.0, 3.0, true);
         assert_eq!(still.loop_duration(), None);
         assert_eq!(still.canvas(40, 14, 0.0).glyphs, still.canvas(40, 14, 9.0).glyphs);
+    }
+
+    /// Half a turn over the clip is a seam half a turn wide, so a count between
+    /// two whole ones is taken to the nearer of them rather than drawn.
+    #[test]
+    fn a_part_turn_is_rounded_to_a_whole_one() {
+        let solid = || Renderer::new(Solid::from_text(DIAMOND, 8.0));
+        let part = Turning::new(solid(), 5.0, 2.4, false);
+        let whole = Turning::new(solid(), 5.0, 2.0, false);
+        assert_eq!(part.canvas(40, 14, 1.7).glyphs, whole.canvas(40, 14, 1.7).glyphs);
+
+        // And a count that rounds to nothing leaves a still, which has no loop
+        // to sample and no reason to be re-fitted for a turn it never makes.
+        let none = Turning::new(solid(), 5.0, 0.4, false);
+        assert_eq!(none.loop_duration(), None);
+        assert_eq!(none.canvas(40, 14, 0.0).glyphs, none.canvas(40, 14, 9.0).glyphs);
     }
 
     /// The cache is what stops the preview from going back to disk, so the risk

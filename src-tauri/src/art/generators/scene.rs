@@ -16,7 +16,7 @@ use crate::art::generator::GlyphGenerator;
 use crate::art::params::Params;
 use crate::art::surface::{surface, tube, Sample};
 
-use super::ascii::{Face, Renderer, Solid, Spinning, Vector3};
+use super::ascii::{Face, Renderer, Solid, Turning, Vector3};
 
 /// What the tool can draw.
 ///
@@ -148,9 +148,10 @@ pub fn build(params: &Params) -> Result<Generator, String> {
     renderer.pitch = params.f64("pitch", 26.0)?.to_radians();
     renderer.zoom = params.f64("zoom", 0.92)?;
 
-    Ok(Generator::Glyph(Box::new(Spinning::new(
+    Ok(Generator::Glyph(Box::new(Turning::new(
         renderer,
-        params.f64("spin", 1.2)?,
+        params.period()?,
+        params.f64("turns", 2.0)?,
         params.is_set("still"),
     ))))
 }
@@ -162,7 +163,7 @@ mod tests {
 
     fn drawn(shape: Shape) -> usize {
         let renderer = Renderer::new(Solid::from_quads(shape.quads(48, 0.42)));
-        let canvas = Spinning::new(renderer, 1.2, false).canvas(90, 30, 0.7);
+        let canvas = Turning::new(renderer, 5.0, 2.0, false).canvas(90, 30, 0.7);
         canvas.glyphs.iter().filter(|&&glyph| glyph != SPACE).count()
     }
 
