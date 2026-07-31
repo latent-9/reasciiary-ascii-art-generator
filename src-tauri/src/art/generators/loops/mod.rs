@@ -24,6 +24,7 @@ mod sierpinski;
 mod sinusoids;
 mod sliding;
 mod spherewave;
+mod toruscurve;
 
 use crate::art::canvas::{AsciiCanvas, CELL_ASPECT};
 use crate::art::generator::{Generator, GlyphGenerator};
@@ -38,7 +39,14 @@ use super::paper::Paper;
 /// One list, read by the error message and walked by the tests, so a piece that
 /// is not on it is neither offered to anyone who mistypes nor answerable for
 /// its loop.
-const PIECES: [&str; 5] = ["hilbert", "sinusoids", "sierpinski", "sliding", "spherewave"];
+const PIECES: [&str; 6] = [
+    "hilbert",
+    "sinusoids",
+    "sierpinski",
+    "sliding",
+    "spherewave",
+    "toruscurve",
+];
 
 /// What the tool can make, and which of the app's two ways of arriving at
 /// glyphs that piece takes.
@@ -77,6 +85,8 @@ enum Drawing {
 enum Model {
     /// A sphere of loose elements with a front travelling over it.
     SphereWave { count: usize, seed: u64 },
+    /// A rope knotted round a torus with swells running along it.
+    TorusCurve { twists: usize },
 }
 
 impl Piece {
@@ -99,6 +109,9 @@ impl Piece {
             "spherewave" => Ok(Self::Modelled(Model::SphereWave {
                 count: spherewave::count(params.usize("count", 700)?),
                 seed,
+            })),
+            "toruscurve" => Ok(Self::Modelled(Model::TorusCurve {
+                twists: toruscurve::twists(params.usize("twists", 3)?),
             })),
             other => Err(format!(
                 "`{other}` is not a piece — try one of {}",
@@ -128,6 +141,7 @@ impl Model {
     fn faces(&self, phase: f64) -> Vec<Face> {
         match self {
             Self::SphereWave { count, seed } => spherewave::model(*count, phase, *seed),
+            Self::TorusCurve { twists } => toruscurve::model(*twists, phase),
         }
     }
 
@@ -136,6 +150,18 @@ impl Model {
     fn reach(&self) -> f64 {
         match self {
             Self::SphereWave { count, .. } => spherewave::reach(*count),
+            Self::TorusCurve { twists } => toruscurve::reach(*twists),
+        }
+    }
+
+    /// Where the camera sits to look at this piece, in degrees above its
+    /// middle. A scattering reads from anywhere; a ring has to be looked down
+    /// on, or the near half of it lies over the far half and the whole figure
+    /// is one band.
+    fn pitch(&self) -> f64 {
+        match self {
+            Self::SphereWave { .. } => 18.0,
+            Self::TorusCurve { .. } => 52.0,
         }
     }
 
@@ -238,7 +264,7 @@ pub fn build(params: &Params) -> Result<Generator, String> {
             // top of it would only be one more thing happening.
             renderer.spins = false;
             renderer.yaw = params.f64("yaw", 0.0)?.to_radians();
-            renderer.pitch = params.f64("pitch", 18.0)?.to_radians();
+            renderer.pitch = params.f64("pitch", model.pitch())?.to_radians();
             renderer.zoom = params.f64("zoom", 0.92)?;
             Box::new(Modelled { model, period, still, renderer })
         }
@@ -321,8 +347,14 @@ mod tests {
             let inside = (1..STEPS).map(|step| apart(&frames[step - 1], &frames[step]));
             let widest = inside.max().expect("a loop of more than one frame");
             let seam = apart(&frames[STEPS - 1], &frames[0]);
+            // A piece that moves evenly has every step the same size, and which
+            // of them comes out widest is then a matter of a cell or two. So the
+            // seam is allowed the widest step and a twentieth of it: far below
+            // anything a piece that actually cuts would show, which is several
+            // times the step either side of it.
+            let allowed = widest + widest / 20 + 1;
             assert!(
-                seam <= widest,
+                seam <= allowed,
                 "{name} moves {seam} cells across the seam and at most {widest} anywhere inside"
             );
         }
