@@ -14,6 +14,7 @@ use crate::art::generator::Generator;
 #[cfg(test)]
 use crate::art::generator::GlyphGenerator;
 use crate::art::params::Params;
+use crate::art::surface::{surface, tube, Sample};
 
 use super::ascii::{Face, Renderer, Solid, Spinning, Vector3};
 
@@ -76,98 +77,24 @@ impl Shape {
                 }
             }),
             Self::Cube => cube(steps / 4),
-            Self::Knot => surface(steps * 3, steps / 3, |u, v| {
-                // Two turns the short way for every three the long way, which
-                // is the knot that reads most clearly at this size.
-                let along = TAU * u;
-                let spine = knot(along);
-                let forward = knot(along + 1e-4).minus(spine).normalized();
-                // A frame for the tube, from any direction that is not the one
-                // the curve is going in. The curve never runs straight up, so
-                // up will do.
-                let side = forward.cross(Vector3::new(0.0, 0.0, 1.0)).normalized();
-                let over = side.cross(forward).normalized();
-                let round = TAU * v;
-                let (out, up) = (round.cos() * thickness, round.sin() * thickness);
-                Sample {
-                    point: Vector3::new(
-                        spine.x + side.x * out + over.x * up,
-                        spine.y + side.y * out + over.y * up,
-                        spine.z + side.z * out + over.z * up,
-                    ),
-                    inside: spine,
-                }
-            }),
+            // Two turns the short way for every three the long way, which is
+            // the knot that reads most clearly at this size.
+            Self::Knot => surface(steps * 3, steps / 3, |u, v| tube(knot, u, v, thickness)),
         }
-    }
-}
-
-/// A point on a surface, and the point on the shape's own middle it hangs off:
-/// nothing for a sphere, the ring for a torus, the curve the tube follows for
-/// the knot.
-///
-/// The second is there to say which way is out, which the surface itself cannot
-/// — see [`surface`].
-#[derive(Clone, Copy)]
-struct Sample {
-    point: Vector3,
-    inside: Vector3,
-}
-
-impl Sample {
-    /// A sample on a surface wrapped around a single point.
-    fn about_the_middle(point: Vector3) -> Self {
-        Self { point, inside: Vector3::new(0.0, 0.0, 0.0) }
     }
 }
 
 /// The curve the knot's tube is wrapped around: three turns one way while it
-/// makes two the other, kept at about the reach of the other shapes.
+/// makes two the other, kept at about the reach of the other shapes. `along` is
+/// a whole turn of the curve over nought to one.
 fn knot(along: f64) -> Vector3 {
-    let reach = 0.62 * (2.0 + (3.0 * along).cos());
+    let angle = TAU * along;
+    let reach = 0.62 * (2.0 + (3.0 * angle).cos());
     Vector3::new(
-        reach * (2.0 * along).cos(),
-        reach * (2.0 * along).sin(),
-        0.62 * (3.0 * along).sin(),
+        reach * (2.0 * angle).cos(),
+        reach * (2.0 * angle).sin(),
+        0.62 * (3.0 * angle).sin(),
     )
-}
-
-/// Cuts a surface given by two parameters into quads.
-///
-/// The normal is taken from the quad itself — the cross product of its two
-/// sides — rather than from the formula. It costs the same and it is the one
-/// the shading wants: a quad is drawn flat, so lighting it by a normal its own
-/// corners do not agree with leaves a seam along every edge where the two
-/// answers part company.
-///
-/// Which of the two directions that product comes out in is another matter. It
-/// follows the order the parameters run in, and each formula picks that order
-/// for its own reasons — the sphere and the torus here disagree about it — so
-/// the sample says which side is the outside and the quad is turned to match.
-fn surface(around: usize, through: usize, at: impl Fn(f64, f64) -> Sample) -> Vec<Face> {
-    let around = around.max(3);
-    let through = through.max(2);
-    let mut faces = Vec::with_capacity(around * through);
-    for step in 0..around {
-        let (u0, u1) = (step as f64 / around as f64, (step + 1) as f64 / around as f64);
-        for ring in 0..through {
-            let (v0, v1) = (ring as f64 / through as f64, (ring + 1) as f64 / through as f64);
-            let samples = [at(u0, v0), at(u1, v0), at(u1, v1), at(u0, v1)];
-            let corners = samples.map(|sample| sample.point);
-            let across = corners[1].minus(corners[0]);
-            let down = corners[3].minus(corners[0]);
-            let turn = across.cross(down).normalized();
-            // The first corner against its own middle, so the two are a matched
-            // pair however coarsely the surface is cut. Where the quad closes to
-            // a triangle and the cross product has nothing to say — at a pole,
-            // where a whole ring of samples is one point — this is the entire
-            // answer.
-            let out = corners[0].minus(samples[0].inside);
-            let normal = if turn.dot(out) < 0.0 { turn.negated() } else { turn };
-            faces.push(Face::new(corners, normal));
-        }
-    }
-    faces
 }
 
 /// Six flat sides, each cut into `steps` squares either way.
@@ -274,7 +201,7 @@ mod tests {
                 Vector3::new(point.x / flat, point.y / flat, 0.0)
             }
             Shape::Knot => (0..2048)
-                .map(|step| knot(TAU * step as f64 / 2048.0))
+                .map(|step| knot(step as f64 / 2048.0))
                 .min_by(|one, other| gap(point, *one).total_cmp(&gap(point, *other)))
                 .unwrap(),
         }

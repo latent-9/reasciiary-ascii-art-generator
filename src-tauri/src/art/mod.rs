@@ -7,6 +7,7 @@ pub mod motion;
 pub mod paint;
 pub mod params;
 pub mod read;
+pub mod surface;
 
 pub mod filters;
 pub mod generators;
