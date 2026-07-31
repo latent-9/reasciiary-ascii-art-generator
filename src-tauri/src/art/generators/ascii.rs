@@ -236,9 +236,6 @@ impl Solid {
         let rows = lines.len();
         let columns = lines.iter().map(Vec::len).max().unwrap_or(0);
 
-        let half_width = columns as f64 / 2.0;
-        let half_height = rows as f64 * CELL_ASPECT / 2.0;
-
         let mut heights = vec![0.0f64; rows * columns];
         for (row, line) in lines.iter().enumerate() {
             for (column, character) in line.iter().enumerate() {
@@ -246,19 +243,50 @@ impl Solid {
             }
         }
 
-        // The heaviest column reaches half this far either side of the origin
-        // the frame is rotated about — see [`build_faces`]. Measuring the
-        // drawing rather than `depth` keeps the fit tight when nothing in it
-        // reaches full ink.
+        // Measuring the drawing rather than taking `depth` keeps the fit tight
+        // when nothing in it reaches full ink.
         let tallest = heights.iter().copied().fold(0.0, f64::max);
-        let half_depth = tallest / 2.0;
 
-        let bound = Bound::Slab { half_width, half_height, half_depth };
+        Self::from_heights(&heights, rows, columns, tallest)
+    }
+
+    /// A solid from a heightfield directly, for a relief no text was written
+    /// for.
+    ///
+    /// `reach` is the tallest column the field will ever raise, which is not
+    /// always the tallest one it has raised here. A field that moves has to say
+    /// so rather than have it measured: the frame is fitted to the solid's own
+    /// extent, so a reach that followed each frame's own crest would make the
+    /// whole model breathe in and out as the relief travelled under it.
+    pub fn from_heights(heights: &[f64], rows: usize, columns: usize, reach: f64) -> Self {
+        // The heaviest column reaches half this far either side of the origin
+        // the frame is rotated about — see [`build_faces`].
+        let bound = Bound::Slab {
+            half_width: columns as f64 / 2.0,
+            half_height: rows as f64 * CELL_ASPECT / 2.0,
+            half_depth: reach / 2.0,
+        };
         if rows == 0 || columns == 0 {
             return Self { faces: Vec::new(), bound };
         }
 
-        Self { faces: build_faces(&heights, rows, columns), bound }
+        Self { faces: build_faces(heights, rows, columns), bound }
+    }
+
+    /// The same solid, fitted as the disc it is rather than as the rectangle it
+    /// was laid out on.
+    ///
+    /// A heightfield is stored on a grid whether or not the thing on it is
+    /// square, and the corners of that grid are what the frame is held back by.
+    pub fn rounded(self) -> Self {
+        let Self { faces, bound } = self;
+        let bound = match bound {
+            Bound::Slab { half_width, half_height, half_depth } => {
+                Bound::Puck { radius: half_width.max(half_height), half_depth }
+            }
+            round => round,
+        };
+        Self { faces, bound }
     }
 }
 
