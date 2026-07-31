@@ -127,6 +127,22 @@ pub struct Alphabet {
     /// [`RAMP_STEPS`] bytes is nothing beside the ninety-five bitmaps they are
     /// measured from.
     ramps: Vec<Vec<u8>>,
+    /// What every printable glyph puts on a cell, [`FIRST`] first, against the
+    /// most ink any one of them can — the scale [`Template::weight`] is on.
+    ///
+    /// Against a full cell instead, a drawing of solid `@` would read as barely
+    /// half lit and come back a shade or two down the ramp from what it plainly
+    /// is. The heaviest glyph in ASCII still leaves the gaps inside its own
+    /// strokes, and what it is being asked here is how much ink is on the paper,
+    /// not how much would fit.
+    ///
+    /// The matching runs the other way too. A drawing somebody already wrote is
+    /// a grid of characters, and showing it at a size other than the one it was
+    /// written at means drawing it out as light before it can be read back —
+    /// see [`super::read::raster_of`]. These are the only bitmaps in the app,
+    /// and a second set rasterised to suit that would be a second answer to
+    /// what a glyph looks like.
+    coverages: Vec<Cell>,
 }
 
 /// Rasterised once. Ninety-five glyphs at eight times resolution is real work,
@@ -185,6 +201,11 @@ impl Alphabet {
             .map(|ramp| grade(&weights, ramp))
             .collect();
 
+        let bitmaps: Vec<Cell> = coverages
+            .iter()
+            .map(|(_, coverage)| coverage.map(|sample| sample / range))
+            .collect();
+
         let mut templates: Vec<Template> = coverages
             .into_iter()
             .filter(|(byte, _)| MARKS.contains(byte))
@@ -192,7 +213,21 @@ impl Alphabet {
             .collect();
         templates.sort_by(|one, other| one.weight.total_cmp(&other.weight));
 
-        Self { templates, weights, ramps }
+        Self { templates, weights, ramps, coverages: bitmaps }
+    }
+
+    /// What one character puts on a cell, sample by sample, from nothing to a
+    /// solid one.
+    ///
+    /// Anything the grid cannot hold reads as blank. Nothing outside printable
+    /// ASCII ever reaches a canvas — [`super::canvas::AsciiCanvas::from_text`]
+    /// is where a drawing that had some comes down to it.
+    pub fn coverage(&self, byte: u8) -> &Cell {
+        const BLANK: &Cell = &[0.0; CELL_PIXELS];
+        match byte.checked_sub(FIRST) {
+            Some(index) if byte <= LAST => &self.coverages[index as usize],
+            _ => BLANK,
+        }
     }
 
     /// The brightness table for one set of characters.

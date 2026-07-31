@@ -14,7 +14,7 @@
 
 use std::path::Path;
 
-use image::RgbaImage;
+use image::{Rgba, RgbaImage};
 
 use super::canvas::{AsciiCanvas, AsciiColor, AsciiRamp};
 use super::glyphs::{ALPHABET, CELL_PIXELS, CELL_PIXELS_TALL, CELL_PIXELS_WIDE};
@@ -208,6 +208,40 @@ pub fn is_drawing(path: &str) -> bool {
     Path::new(path)
         .extension()
         .is_some_and(|kind| DRAWINGS.iter().any(|known| kind.eq_ignore_ascii_case(known)))
+}
+
+/// A grid of characters drawn out as the raster this module reads back.
+///
+/// Not [`super::paint`], which draws a grid at whatever size a frame wants and
+/// in whatever colours it is being shown in, for somebody to look at. This
+/// draws it at exactly one cell's patch a cell, white on black, which is the
+/// one shape a [`Reader`] can be handed.
+///
+/// What it is for is size. A drawing is already characters, so reading one back
+/// at the grid it was written at would only ask the matcher to agree with the
+/// artist. At any other grid it is a real question and this is the only honest
+/// way to put it: characters do not shrink, so a drawing that has to fit a
+/// smaller grid has to be drawn out as light and matched again.
+pub fn raster_of(canvas: &AsciiCanvas) -> RgbaImage {
+    let (wide, tall) = fine_size(canvas.columns, canvas.rows);
+    let mut fine = RgbaImage::new(wide.max(1), tall.max(1));
+    for row in 0..canvas.rows {
+        for column in 0..canvas.columns {
+            let coverage = ALPHABET.coverage(canvas.get(column, row));
+            for y in 0..CELL_PIXELS_TALL {
+                for x in 0..CELL_PIXELS_WIDE {
+                    let level = coverage[y * CELL_PIXELS_WIDE + x].clamp(0.0, 1.0);
+                    let level = (level * 255.0).round() as u8;
+                    fine.put_pixel(
+                        (column * CELL_PIXELS_WIDE + x) as u32,
+                        (row * CELL_PIXELS_TALL + y) as u32,
+                        Rgba([level, level, level, 255]),
+                    );
+                }
+            }
+        }
+    }
+    fine
 }
 
 #[cfg(test)]
