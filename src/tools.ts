@@ -108,7 +108,45 @@ const READING: Group = {
 
 const STILL: Control = { kind: "switch", flag: "still", label: "Hold still", value: false };
 
+/// The window opens on whichever tool is first, so the first is the one that
+/// has something to show without being given anything: the pieces bring their
+/// own subject, and every other tool here waits for a file or a formula.
 export const TOOLS: Tool[] = [
+  {
+    name: "loops",
+    label: "Loop",
+    blurb: "A finished piece that comes back round to where it began.",
+    groups: [
+      {
+        title: "Piece",
+        controls: [
+          {
+            kind: "choice",
+            flag: "piece",
+            label: "Piece",
+            value: "hilbert",
+            options: [
+              "hilbert",
+              "sinusoids",
+              "sierpinski",
+              "sliding",
+              "spherewave",
+              "toruscurve",
+            ],
+          },
+        ],
+      },
+      {
+        title: "Motion",
+        controls: [
+          { kind: "range", flag: "period", label: "Loop", min: 1, max: 20, step: 1, value: 6 },
+          { kind: "range", flag: "seed", label: "Seed", min: 0, max: 99, step: 1, value: 7 },
+          STILL,
+        ],
+      },
+      READING,
+    ],
+  },
   {
     name: "ascii",
     label: "Drawing",
