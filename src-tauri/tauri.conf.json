@@ -14,11 +14,12 @@
     "windows": [
       {
         "title": "Asciiary",
-        "width": 1000,
-        "height": 640,
-        "minWidth": 560,
-        "minHeight": 360,
+        "width": 1080,
+        "height": 680,
+        "minWidth": 860,
+        "minHeight": 460,
         "titleBarStyle": "Overlay",
+        "hiddenTitle": true,
         "backgroundColor": "#0c0c0e"
       }
     ],
