@@ -212,6 +212,30 @@ fn build_faces(heights: &[f64], rows: usize, columns: usize, sink: f64) -> Vec<F
         heights[row as usize * columns + column as usize]
     };
 
+    // Which way the drawing is sloping under this cell, as the normal of that
+    // slope. A cap used to be handed a flat `(0, 0, 1)` — true of the box it
+    // sits on, but not of the drawing, and it meant every cap in the model took
+    // exactly the same light however the ink around it ran. The relief only
+    // survived as a step at the silhouette, which is why a third of the shade
+    // had to be bought back from distance instead.
+    //
+    // The gradient is a Sobel rather than a difference of the two neighbours
+    // either side: art is often dithered, and a stencil one cell wide reads
+    // `#@#@` as a cliff a cell, so the surface breaks up into noise. Weighting
+    // the diagonals in asks the same question of a three by three patch, which
+    // alternating ink answers the way the eye does — as flat.
+    let slope = |row: i64, column: i64| -> Vector3 {
+        let at = |dr: i64, dc: i64| height(row + dr, column + dc);
+        let run = |dc: i64| at(-1, dc) + 2.0 * at(0, dc) + at(1, dc);
+        let rise = |dr: i64| at(dr, -1) + 2.0 * at(dr, 0) + at(dr, 1);
+
+        // Columns are one apart, rows `CELL_ASPECT`, and a row's y falls as its
+        // index climbs — so `row - 1` is the one further up the picture.
+        let per_x = (run(1) - run(-1)) / 8.0;
+        let per_y = (rise(-1) - rise(1)) / (8.0 * CELL_ASPECT);
+        Vector3::new(-per_x, -per_y, 1.0).normalized()
+    };
+
     for row in 0..rows {
         for column in 0..columns {
             let top = height(row as i64, column as i64);
@@ -225,13 +249,13 @@ fn build_faces(heights: &[f64], rows: usize, columns: usize, sink: f64) -> Vec<F
             let y0 = center_y - half_cell;
             let y1 = center_y + half_cell;
 
-            // Cap.
+            // Cap, tilted into the light by the slope it sits on.
             faces.push(Face {
                 a: Vector3::new(x0, y0, top - sink),
                 b: Vector3::new(x1, y0, top - sink),
                 c: Vector3::new(x1, y1, top - sink),
                 d: Vector3::new(x0, y1, top - sink),
-                normal: Vector3::new(0.0, 0.0, 1.0),
+                normal: slope(row as i64, column as i64),
             });
 
             // Base, so the solid still reads as one when tipped past edge-on.
@@ -340,10 +364,13 @@ pub struct Renderer {
     pub shininess: f64,
     /// How much of the shade comes from distance rather than from the light.
     ///
-    /// Flat-topped columns all share one normal, so lighting alone paints every
-    /// cap the same and the relief disappears into a slab. Mixing in nearness
-    /// restores it, and is faithful to the source: a taller column is a nearer
-    /// one, so head-on the render reproduces the drawing's own ink.
+    /// This carried the relief on its own once, because every cap took the same
+    /// flat normal and lighting could not tell one from another; without it the
+    /// model collapsed into a slab. A cap is tilted by the ink around it now (see
+    /// [`build_faces`]), so the light does that work and this is left to do only
+    /// what it is actually good for: staying faithful to the source. A taller
+    /// column is a nearer one, so head-on the render still reproduces the
+    /// drawing's own ink rather than only the shape the lights find in it.
     pub depth_cueing: f64,
 }
 
@@ -926,6 +953,78 @@ mod tests {
             moved_after(period * 0.9) > seam * 10,
             "the seam tolerance is wide enough to hide a wrong period"
         );
+    }
+
+    /// Caps carry the light now, so which way they point is worth pinning down.
+    /// Ink that does not change has nothing to tilt on.
+    #[test]
+    fn level_ink_leaves_its_caps_facing_the_viewer() {
+        let caps = caps(&[4.0; 25], 5, 5);
+        assert!(inner(&caps, 5, 5).iter().all(is_level), "an even block is one flat surface");
+        assert_eq!(
+            caps.iter().filter(|normal| is_level(normal)).count(),
+            9,
+            "and the cells around it lean out over the drop to the paper"
+        );
+    }
+
+    /// Dithering fakes a tone by alternating two characters, and ASCII art is
+    /// full of it. Asked about one neighbour at a time this is a cliff at every
+    /// cell and the surface shatters into noise; asked over a three by three
+    /// patch the alternation cancels, which is what the eye does with it too.
+    #[test]
+    fn dithered_ink_reads_as_a_tone_rather_than_as_cliffs() {
+        let heights: Vec<f64> = (0..25)
+            .map(|index| if (index / 5 + index % 5) % 2 == 0 { 8.0 } else { 2.0 })
+            .collect();
+        let caps = caps(&heights, 5, 5);
+        assert!(
+            inner(&caps, 5, 5).iter().all(is_level),
+            "a checkerboard is a flat tone, not a field of steps"
+        );
+    }
+
+    /// The other half of that claim: ink that genuinely does run one way has to
+    /// tilt, and tilt back against the rise, which is what catches a light hung
+    /// over the slope.
+    #[test]
+    fn a_rise_tilts_its_caps_back_against_it() {
+        let heights: Vec<f64> = (0..25).map(|index| (index % 5) as f64 + 1.0).collect();
+        let caps = caps(&heights, 5, 5);
+        let inner = inner(&caps, 5, 5);
+
+        assert!(
+            inner.iter().all(|normal| normal.x < -0.5),
+            "ink rising to the right should lean every cap well to the left"
+        );
+        assert!(
+            inner.iter().all(|normal| normal.y.abs() < 1e-9),
+            "the ramp does not run up the picture, so nothing should lean that way"
+        );
+    }
+
+    /// The cap of every cell, in reading order. Every grid tested here stands
+    /// clear of zero, so no cell is skipped and an index is a cell.
+    fn caps(heights: &[f64], rows: usize, columns: usize) -> Vec<Vector3> {
+        build_faces(heights, rows, columns, 0.0)
+            .into_iter()
+            .filter(|face| face.normal.z > 0.0)
+            .map(|face| face.normal)
+            .collect()
+    }
+
+    /// The caps with a neighbour on all sides. A grid ends in a cliff down to
+    /// the paper, and that cliff is a real slope — leaning out over it is the
+    /// edge cells' job, not evidence about the ink inside.
+    fn inner(caps: &[Vector3], rows: usize, columns: usize) -> Vec<Vector3> {
+        (1..rows - 1)
+            .flat_map(|row| (1..columns - 1).map(move |column| row * columns + column))
+            .map(|index| caps[index])
+            .collect()
+    }
+
+    fn is_level(normal: &Vector3) -> bool {
+        normal.x.abs() < 1e-9 && normal.y.abs() < 1e-9
     }
 
     #[test]
