@@ -185,8 +185,10 @@ pub fn even_dimensions(width: u32, height: u32) -> (u32, u32) {
     (width + width % 2, height + height % 2)
 }
 
-/// Flat colour and hard glyph edges compress well, but a low bitrate turns thin
-/// strokes to mush — which is the whole picture here.
+/// The most a frame is allowed to cost. Flat colour and hard glyph edges
+/// compress well, but a low bitrate turns thin strokes to mush — which is the
+/// whole picture here, so the ceiling is set well above what a drawing of this
+/// size actually spends and only catches one busy enough to run away.
 pub fn h264_bitrate(width: u32, height: u32) -> u64 {
     width as u64 * height as u64 * 8
 }
@@ -208,15 +210,33 @@ fn raw_input(width: u32, height: u32, fps: u32) -> Vec<String> {
 /// Arguments for the MP4 pass.
 ///
 /// `yuv420p` is required for the file to play on X and in QuickTime, but its
-/// chroma subsampling is exactly what hurts thin coloured strokes; the bitrate
-/// is what buys that back. AVFoundation handled this silently.
+/// chroma subsampling is exactly what hurts thin coloured strokes; the quality
+/// setting is what buys that back. AVFoundation handled this silently.
+///
+/// The encoder is asked for a quality rather than a rate, and asked to find it
+/// quickly. Encoding was nine tenths of an export — a frame costs seven
+/// milliseconds to draw and ffmpeg spent sixty-four on it — because a slow
+/// preset aimed at a rate spends its effort hunting for a cheaper way to say the
+/// same thing. That is worth doing for camera footage. This is flat colour and
+/// hard edges at four megapixels, where there is little to hunt for: asking
+/// `superfast` for `crf 18` instead cut the encode to a third and came out
+/// *smaller* than the rate it was previously given, which the old settings never
+/// spent anyway. The rate stays on as a ceiling for the drawing busy enough to.
+///
+/// `ultrafast` is faster again, but it turns off CABAC — which quietly drops the
+/// file to Constrained Baseline whatever profile is asked for, and costs half as
+/// much again in size.
 pub fn mp4_args(width: u32, height: u32, fps: u32, out: &str) -> Vec<String> {
     let mut args = raw_input(width, height, fps);
+    let ceiling = h264_bitrate(width, height);
     args.extend([
         "-c:v".into(), "libx264".into(),
+        "-preset".into(), "superfast".into(),
+        "-crf".into(), "18".into(),
         "-profile:v".into(), "high".into(),
         "-pix_fmt".into(), "yuv420p".into(),
-        "-b:v".into(), h264_bitrate(width, height).to_string(),
+        "-maxrate".into(), ceiling.to_string(),
+        "-bufsize".into(), (ceiling * 2).to_string(),
         out.into(),
     ]);
     args
