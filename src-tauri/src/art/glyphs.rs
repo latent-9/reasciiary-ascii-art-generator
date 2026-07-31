@@ -306,18 +306,28 @@ fn direction_of(cell: &Cell, mean: f32) -> Option<Cell> {
     Some(shape)
 }
 
-/// `emilwidlund/ASCII`'s default set, which is its whole technique: characters
-/// "in brightness order dark -> light", indexed by brightness. Short enough that
-/// consecutive steps are visibly different, which the ninety-four ordered by
-/// coverage are not — that ordering puts `%`, `&`, `M` and `W` beside each
-/// other, and a face graded through them reads as noise.
+/// The characters a lit face is graded through, lightest first.
 ///
-/// Its leading space is missing here because background is settled by coverage;
-/// see [`Alphabet`].
-const RAMP: &[u8] = b".:,'-^=*+?!|0#X%WM@";
+/// A ramp needs two things at once and they pull against each other. Its steps
+/// have to differ in weight, or the shading has no range; and they have to *look*
+/// like each other, or a smooth surface reads as static however correct each cell
+/// is on its own.
+///
+/// `emilwidlund/ASCII`'s nineteen — `.:,'-^=*+?!|0#X%WM@` — were ordered for the
+/// first and this used them. `*`, `+`, `?`, `!` and `|` all carry about the same
+/// ink and look nothing alike, so a face crossing that stretch of the ramp broke
+/// into a rash of punctuation: the brightness field underneath was smooth and the
+/// picture was not. Every renderer whose output actually reads as a solid — from
+/// `donut.c`'s `.,-~:;=!*#$@` on — uses a short ramp of marks that thicken from
+/// one to the next, and that is the property worth spending the range on. Nine of
+/// them still resolve more shades than a cell of text can carry.
+///
+/// The leading space such a ramp usually opens with is missing because background
+/// is settled by coverage; see [`Alphabet`].
+const RAMP: &[u8] = b".:-=+*#%@";
 
 /// How finely brightness is resolved before it is turned into a character.
-/// Well past what nineteen characters can distinguish, so the table is exact
+/// Well past what nine characters can distinguish, so the table is exact
 /// wherever two of them are close together.
 const RAMP_STEPS: usize = 256;
 
