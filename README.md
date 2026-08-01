@@ -11,7 +11,7 @@ grid is one way to land a frame rather than the point of the thing.
 | `scene` | a sphere, torus, cube or knot cut from a formula and turned |
 | `media` | a drawing, a picture or an animation read flat as glyphs |
 | `gen2d` | a flow field drawn in pixels and read back as glyphs |
-| `spiral` | a wave winding out from the middle under a drift of particles |
+| `spiral` | a wave winding out from the middle, drawn by one spiralling line |
 
 The renderers `ascii` borrows from all start with a mesh somebody modelled. It
 starts with a file nobody modelled anything in, so it needs one rule they do not:
@@ -186,73 +186,92 @@ arrives, and the taste for a figure that rearranges itself and comes back.
 
 ## The one that is not characters
 
-`spiral` is a plane and a crowd. The plane's height is a plain sine wave delayed
-by how far out a point lies *and* by which way round it lies — and a delay that
-reads the angle is a spiral, so the crest winds outward instead of ringing. The
-crowd is seventeen thousand particles, each on its own fixed ray, crawling out
-from the middle a little above the surface and rising and falling with it.
+`spiral` is a plane with marks over it. The plane's height is a plain sine wave
+delayed by how far out a point lies *and* by which way round it lies — and a
+delay that reads the angle is a spiral, so the crest winds outward instead of
+ringing. What stands over it is drawn one of two ways, and which one depends on
+whether a file was opened.
 
-A drawing or a picture can be laid on the disc the crowd walks out across, and
-then the crowd is what shows it: a particle takes the light it is standing over
-as the size of its mark, the way every halftone ever printed takes a tone, and
-one standing over the picture's paper is not drawn at all. Sizing the mark is
-what makes a photograph arrive at all — a photograph is lit nearly everywhere,
-so drawing the marks faintly instead would leave the whole crowd standing and
-merely grey it, and a greyed crowd is the crowd. It is read where
-the particle stands rather than where the ray it rides set off, which is the
-whole of the difference — read from the start of the ray, every point of the
-picture would be smeared out along it. Read from under the particle, the picture
-holds still while the crowd walks out through it, so what arrives is not the
-picture but the picture being carried: thinning where it is dark, riding the
+With nothing laid on the disc it is a drift: seventeen thousand particles, each
+on its own fixed ray, crawling out from the middle a little above the surface and
+rising and falling with it. That is the piece as it was composed, and `--bare`
+asks for it.
+
+With a drawing or a picture laid on the disc, the drift goes and the marks stand
+along one line wound out from the middle instead — an engraver's line, `--windings`
+turns of it, thickening where the light is and thinning to nothing where it is
+not. A scatter cannot draw a picture and was never asked to: most of a scatter
+lands on the dark and is swept away, what is left holds no edge, and what arrives
+is a cloud in roughly the right shape. Wound instead, every mark lands somewhere
+the last one did not, the whole disc is covered once, and the subject comes back
+as the subject. It is also more of a spiral than the drift ever was, rather than
+less.
+
+Each mark takes the light it is standing over as its size, the way every halftone
+ever printed takes a tone, and one standing over the picture's paper is not drawn
+at all. Sizing the mark is what makes a photograph arrive — a photograph is lit
+nearly everywhere, so drawing the marks faintly instead would leave every one of
+them standing and merely grey the line, and a greyed line is the line. A mark is
+half a winding across at the full of the light, so there it closes on the
+windings either side of it and the line goes solid; anything less leaves paper
+showing, and that is the whole of how a tone arrives. The picture holds still
+while the line turns a whole revolution through it over the loop, riding the
 swell wherever the wave happens to be under it.
 
 It takes the file the same way the other two do, and the same flags say how to
 read it — `--invert` and `--contrast` for which end of it is the subject and how
-hard, `--color` to give each particle the colour it is standing on instead of the
-ink. `--spread` is how much of the disc it covers, and past a whole the crowd is
-standing on the middle of it, which is a crop rather than a fit. `--fit` is the
+hard, `--color` to give each mark the colour it is standing on instead of the
+ink. `--spread` is how much of the disc it covers, and past a whole the line is
+wound over the middle of it, which is a crop rather than a fit. `--fit` is the
 other half of that question, and it is the flat read's word for the same thing: a
 disc is round and a photograph is not, so `contain` stands the whole picture
 inside the disc and leaves the near and far of it empty, while `cover` fills the
-disc and lets the ends of the picture walk out past the last particle. `--floor`
-is where the picture stops being a subject and starts being paper: below it a
-particle draws nothing at all, which is what keeps the dark of a picture dark
-rather than dusted over — and where that line falls is a judgement about the
-picture, low for a subject sitting in shadow and high for one meant to read as a
-stencil.
+disc and lets the ends of the picture walk out past the rim. `--floor` is where
+the picture stops being a subject and starts being paper: below it a mark is not
+drawn at all, which is what keeps the dark of a picture dark rather than hatched
+over — and where that line falls is a judgement about the picture, low for a
+subject sitting in shadow and high for one meant to read as a stencil.
 
 Before any of those are asked, the picture is opened out to its own darkest and
 brightest — `--open`, a whole by default and nought to read the light exactly as
-it stands. It has to come first and it has to be on: the crowd carries light as
-the *size* of a mark, so a picture whose light never rises far is a picture drawn
+it stands. It has to come first and it has to be on: light is carried as the
+*size* of a mark, so a picture whose light never rises far is a picture drawn
 entirely in marks too fine to see. A screenshot of pale text on a dark field is
-the worst case and the commonest one — read down to the size the crowd can show,
+the worst case and the commonest one — read down to the size the line can show,
 every stroke in it averages away to a few hundredths and the whole picture comes
-out under the paper floor, so the frame arrives with the drift on it and no sign
-a file was ever opened. `--contrast` cannot rescue that, and this is why: it
+out under the paper floor, so the frame arrives bare, with no sign a file was
+ever opened. `--contrast` cannot rescue that, and this is why: it
 turns about the middle of the range, so a picture with nothing near the middle is
 one it can only push further down.
 
 Which end of the picture is its subject is then found rather than assumed. A
 picture whose light averages high is mostly its own paper, and it is the ink that
-gets carried. The same arithmetic is behind it: light is the size of a mark, so a
-picture that is bright nearly everywhere is a crowd that is full nearly
-everywhere, which is a frame nothing can tell from the drift with no file under
-it at all. That is not an unusual file to be handed — a signature, a logo, a
+gets drawn. The same arithmetic is behind it: light is the size of a mark, so a
+picture that is bright nearly everywhere is a line that runs solid nearly
+everywhere, which is a coil with nothing in it to say a file was ever opened.
+That is not an unusual file to be handed — a signature, a logo, a
 diagram, a screenshot of a page, all of them a little ink on a great deal of
 white. Well above a half before it says so, because a picture with tones either
 side of the middle is a photograph and turning a photograph over is never what
 was meant. `--invert` still has the last word: it swaps the ends of whatever was
 found, so a line that knows which end it wants gets it.
 
-A picture laid on the disc wants a low `--pitch` to be read at. The wave lifts a
-particle by about a third of the disc's own radius, and from any real angle that
-lift drags what the crowd is holding across the frame: tipped far enough over to
-see the swells standing in front of each other, a photograph is a smear and a
-page of writing is nothing. Around 15 the subject survives and there is still a
-surface under it; past 20 or so it is gone. The window's spiral tab opens there
-for that reason, and the drift alone is the finer thing from up around fifty —
-which is a drag away.
+The disc also settles under a picture. At its full height the wave carries the
+plane about a quarter of a frame toward the eye and away again, eight times over
+between the middle and the rim, and the lens magnifies what is near it and
+shrinks what is far — so on a drawing each swell drags the part standing on it
+outward and the next hauls it back, and the subject arrives torn into eight rings
+of itself. On a scatter that reads as depth, because a scatter has no shape to
+lose. So a laid picture leaves a quarter of the swell standing: enough to see the
+line rise and fall, not enough to pull the drawing apart. The drift keeps the
+whole of it.
+
+A picture still wants a low `--pitch` to be read at — from overhead the disc is
+a disc, and tipped far enough over to see the swells standing in front of each
+other a photograph is foreshortened into a band and a page of writing is nothing.
+Around 15 the subject survives and there is still a surface under it; past 40 or
+so it is gone. The window's spiral tab opens there for that reason, and the drift
+alone is the finer thing from up around fifty — which is a drag away.
 
 With no file at all it is the drift alone, which is how the piece was
 composed and a thing in its own right; `--bare` asks for that with one open,
@@ -260,8 +279,8 @@ because the window always has one.
 
 The plane is drawn in the paper's own colour, so none of it is ever seen. That is
 deliberate, and it is the whole reason this one ends in pixels: what the plane is
-there for is to stand in the way. A particle over the far slope of a swell is
-hidden by the near one, and that occlusion is the only thing saying the crowd
+there for is to stand in the way. A mark over the far slope of a swell is hidden
+by the near one, and that occlusion is the only thing saying what stands over it
 lies on a surface rather than swimming in a fog. Read back as characters the
 plane would have to take a shade of its own, and the piece would be a lit relief
 with some dust on it — a different picture.
@@ -420,6 +439,7 @@ And its own on top:
 | | `--fit` | `contain` to stand it inside the disc, `cover` to fill it | `contain` |
 | | `--open` | how far it is opened out to its own darkest and brightest | `1` |
 | | `--floor` | how faint the light may get before it counts as paper | `0.04` |
+| | `--windings` | turns of the line that draws it, middle to rim | `110` |
 | | `--bare` | the drift on its own, with nothing laid under it | off |
 | | `--count` | particles in the drift | `17000` |
 | | `--mesh` | quads a side the plane is cut into | `130` |
