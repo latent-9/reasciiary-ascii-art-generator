@@ -91,7 +91,17 @@ const PREVIEW_EDGE: u32 = 720;
 
 /// The same for one frame of a played loop, which there are up to
 /// [`PICTURE_FRAMES`] of and which pays that cost once each.
-const FILM_EDGE: u32 = 360;
+///
+/// Near what a pane shows a picture at, rather than as small as a loop can be
+/// sent at, because well under it two things go. A drag is answered with a
+/// still drawn at [`PREVIEW_EDGE`], so the picture shrank the moment the loop
+/// replaced it; and the marks a line is drawn from fall under the floor the
+/// raster holds a dot at — the spiral's, at a hundred windings, is 0.0023 of a
+/// frame, which at 360 pixels was under half a pixel for the darker half of the
+/// range and came back as a wash. Not [`PREVIEW_EDGE`] itself: ninety of these
+/// cross the bridge as text in one message, which at this size already runs to
+/// tens of megabytes.
+const FILM_EDGE: u32 = 480;
 
 /// How many frames a loop of pictures is played from.
 ///
