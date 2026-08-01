@@ -39,7 +39,9 @@
 //! true — see [`eye`].
 //!
 //! Every part of it closes its own loop by construction. The wave depends on the
-//! phase only through a sine of it. A particle is drawn as [`COPIES`] copies
+//! phase only through a sine of it, and the wandering laid over that only through
+//! a circle walked in a field that has no ends to walk off — see
+//! [`Wave::wandered`]. A particle is drawn as [`COPIES`] copies
 //! evenly spaced along its own run, so a full period walks each copy onto where
 //! the next one stood — and the one that falls off the end is at the end of the
 //! run, where its size is nought, as is the one arriving at the start. The
