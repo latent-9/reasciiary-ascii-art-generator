@@ -149,7 +149,7 @@ const MOVEMENT: Control[] = [
 /// glyphs make of it, then lift it. One file, carried between the three.
 ///
 /// The spiral is the third thing to do with that file: lay it on the wave and
-/// let the drift carry it out. It is also the only tool here that will stand
+/// let one winding line draw it. It is also the only tool here that will stand
 /// without one — the drift is a piece in its own right, and "Drift only" is how
 /// to ask for it — and a piece that needs nothing opened is what the rest of the
 /// registry is kept out of the window for: a formula turning on its own is a
@@ -217,17 +217,15 @@ export const TOOLS: Tool[] = [
   {
     name: "spiral",
     label: "Spiral",
-    blurb: "A wave winding out from the middle under a drift of particles.",
+    blurb: "A wave winding out from the middle, drawn by one spiralling line.",
     source: SUBJECT,
-    // Nearly overhead, because in here the piece is carrying the file the window
-    // has open and a picture laid on the disc is only legible from above. The
-    // wave lifts a particle by a third of the disc's own radius, so from any
-    // real angle that lift drags what the crowd is holding across the frame —
-    // tipped over far enough to see the swells standing in front of each other,
-    // a photograph on the disc is a smear and a page of writing is nothing at
-    // all. The drift alone is a finer thing from up around fifty, and that is a
-    // drag away: what this settles is where a tab that has just been handed a
-    // file opens, and what a double-click puts back.
+    // Nearly overhead, because in here the piece is drawing the file the window
+    // has open and a picture laid on the disc is only legible from above. Tipped
+    // over far enough to see the swells standing in front of each other, a
+    // photograph on the disc is a smear and a page of writing is nothing at all.
+    // The drift alone is a finer thing from up around fifty, and that is a drag
+    // away: what this settles is where a tab that has just been handed a file
+    // opens, and what a double-click puts back.
     camera: { yaw: 0, pitch: 14, zoom: 1 },
     groups: [
       {
@@ -262,12 +260,19 @@ export const TOOLS: Tool[] = [
           { kind: "range", flag: "open", label: "Open out", min: 0, max: 1, step: 0.05, value: 1 },
           ...TONES,
           // Where the picture stops being a subject and starts being paper the
-          // crowd walks over without marking. Sits under the tones because it is
-          // the same question they ask: which of this picture is the subject.
+          // line crosses without marking. Sits under the tones because it is the
+          // same question they ask: which of this picture is the subject.
           { kind: "range", flag: "floor", label: "Paper below", min: 0, max: 0.6, step: 0.01, value: 0.04 },
+          // How closely the line that draws the picture is wound. Few turns is a
+          // coarse coil with a subject somewhere in it; many is an engraving.
+          // The default is where a photograph's branches survive the read.
+          { kind: "range", flag: "windings", label: "Windings", min: 8, max: 200, step: 1, value: 110 },
         ],
       },
       {
+        // What the disc does with nothing laid on it. None of it is reached
+        // while a file is open: a picture is drawn by the winding line, and
+        // these settle the scatter that stands in for it when there is none.
         title: "Drift",
         controls: [
           // Enough of them to read as a crowd rather than as specks, and the
