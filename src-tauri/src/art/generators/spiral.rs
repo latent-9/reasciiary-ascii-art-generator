@@ -51,7 +51,7 @@ use crate::art::generator::{Generator, PixelGenerator};
 use crate::art::motion::scatter;
 use crate::art::params::Params;
 use crate::art::raster::{Raster, Seen};
-use crate::art::read::{open, raster_of, Fit, Source, Tones};
+use crate::art::read::{open, plain_light, raster_of, Fit, Source, Tones};
 
 use super::ascii::Vector3;
 
@@ -127,6 +127,27 @@ const FAINT: f64 = 0.04;
 /// arrives is not a stencil of the subject but a scatter of specks off it.
 fn floor(given: f64) -> f64 {
     given.clamp(0.0, 0.9)
+}
+
+/// Below this a picture has no range worth opening and is left alone.
+///
+/// A picture all one tone has nothing to stretch — the two ends are the same
+/// number, and pulling them apart would turn whatever noise lies between them
+/// into the subject.
+const FLAT: f32 = 1.0 / 64.0;
+
+/// How far a picture is opened out to its own two ends before it is read.
+///
+/// Nought reads the light as it stands. A whole puts the picture's own darkest
+/// pixel at paper and its brightest at a full mark, which is the difference
+/// between a low-key source arriving and not: the crowd carries light as the
+/// size of its marks, so a picture whose light never rises far is a picture
+/// drawn entirely in marks too fine to see. A screenshot of pale text on a dark
+/// field is the worst case and a common one — downsampled, every stroke in it
+/// averages away to a few hundredths, and the whole picture comes out under the
+/// paper [`floor`].
+fn opened(given: f64) -> f64 {
+    given.clamp(0.0, 1.0)
 }
 
 /// How many places along its run a particle is drawn at once.
@@ -281,20 +302,30 @@ struct Subject {
     floor: f32,
 }
 
+/// What is asked of a picture as it goes down on the disc.
+///
+/// One value rather than a handful of arguments because they are one decision:
+/// every one of them is settled off the same line, none of them means anything
+/// without the rest, and a subject read under half of them is not a subject read.
+#[derive(Clone, Copy)]
+struct Laying {
+    /// How far over the disc the picture is laid.
+    spread: f64,
+    /// How a picture that is not square meets a disc that is.
+    fit: Fit,
+    /// How far it is stretched to its own two ends before it is read.
+    open: f64,
+    /// How faint its light may get before it counts as paper.
+    floor: f64,
+    tones: Tones,
+    colored: bool,
+    /// What the crowd draws in where the picture's own colours are not wanted.
+    ink: [f32; 3],
+}
+
 impl Subject {
-    /// `spread` is how far over the disc the picture is laid, `fit` how a
-    /// picture that is not square meets a disc that is, `floor` how faint its
-    /// light gets before it counts as paper, and `ink` what the crowd draws in
-    /// when the picture's own colours are not wanted.
-    fn new(
-        picture: &RgbaImage,
-        spread: f64,
-        fit: Fit,
-        floor: f64,
-        tones: Tones,
-        colored: bool,
-        ink: [f32; 3],
-    ) -> Self {
+    fn new(picture: &RgbaImage, laying: Laying) -> Self {
+        let Laying { spread, fit, open, floor, tones, colored, ink } = laying;
         let (wide, tall) = (picture.width().max(1), picture.height().max(1));
         // In proportion, and only ever smaller: a picture already coarser than
         // the crowd is at the size the crowd can show, and blowing it up would
@@ -304,7 +335,30 @@ impl Subject {
         let (wide, tall) = (read(wide), read(tall));
         let small = resize(picture, wide, tall, FilterType::Triangle);
 
-        let light = small.pixels().map(|pixel| tones.light(&pixel.0)).collect();
+        // The picture's own light, before either end of it has been moved, so
+        // there is a range to measure at all.
+        let plain: Vec<f32> = small.pixels().map(|pixel| plain_light(&pixel.0)).collect();
+        let darkest = plain.iter().copied().fold(f32::INFINITY, f32::min);
+        let brightest = plain.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+        // Opened to those ends, and only then handed to the tones. The other way
+        // round, contrast has already pushed a low-key picture off the bottom —
+        // it turns about the middle of the range, and a picture with nothing
+        // near the middle is one it can only make darker.
+        let range = brightest - darkest;
+        // A picture all one tone has no two ends to be opened out to, and the
+        // range is what would be divided by.
+        let open = if range > FLAT { open as f32 } else { 0.0 };
+        let light = small
+            .pixels()
+            .zip(&plain)
+            .map(|(pixel, &plain)| {
+                let level = match open > 0.0 {
+                    true => plain + ((plain - darkest) / range - plain) * open,
+                    false => plain,
+                };
+                tones.level(level) * pixel.0[3] as f32 / 255.0
+            })
+            .collect();
         let tint = small
             .pixels()
             .map(|pixel| {
@@ -514,13 +568,23 @@ fn assemble(params: &Params) -> Result<Spiral, String> {
     // All of the picture unless the disc being full matters more, which is the
     // same fallback the flat read makes.
     let fit = Fit::from_params(params, Fit::Contain)?;
-    let blank = floor(params.f64("floor", FAINT)?);
-    let tones = Tones::from_params(params)?;
-    let colored = params.is_set("color");
+    // Opened to the picture's own ends unless a line asks for the light as it
+    // stands. A whole is the default because the crowd draws light as the size
+    // of a mark, and a picture that never gets bright has no marks — see
+    // [`opened`].
+    let laying = Laying {
+        spread: over,
+        fit,
+        open: opened(params.f64("open", 1.0)?),
+        floor: floor(params.f64("floor", FAINT)?),
+        tones: Tones::from_params(params)?,
+        colored: params.is_set("color"),
+        ink,
+    };
 
     // Anything the app can open is a subject here, and none is a subject too:
     // without one the drift is drawn in its own ink, as it always was.
-    let laid = |picture: &RgbaImage| Subject::new(picture, over, fit, blank, tones, colored, ink);
+    let laid = |picture: &RgbaImage| Subject::new(picture, laying);
     let written = |text: &str| laid(&raster_of(&AsciiCanvas::from_text(text)));
     // On a command line, no subject is a line with no file on it. The window has
     // no such line — it carries one file between all of its tools and hands it to
@@ -711,9 +775,23 @@ mod tests {
 
     fn laid(picture: &RgbaImage, colored: bool, fit: Fit) -> Spiral {
         let mut spiral = made(&[("yaw", "0"), ("pitch", "0")]);
-        let subject = Subject::new(picture, 1.0, fit, FAINT, Tones::PLAIN, colored, spiral.ink);
-        spiral.subject = Some(subject);
+        let laying = Laying { fit, colored, ..plainly(&spiral) };
+        spiral.subject = Some(Subject::new(picture, laying));
         spiral
+    }
+
+    /// A whole picture over the whole disc with nothing asked of its tones,
+    /// which is what the tests below move one setting off at a time.
+    fn plainly(spiral: &Spiral) -> Laying {
+        Laying {
+            spread: 1.0,
+            fit: Fit::Contain,
+            open: 1.0,
+            floor: FAINT,
+            tones: Tones::PLAIN,
+            colored: false,
+            ink: spiral.ink,
+        }
     }
 
     /// What the crowd is for once it has a picture: it is the picture. A
@@ -749,14 +827,46 @@ mod tests {
         let half = painted(|_, _| [128, 128, 128, 255]);
         let under = |floor| {
             let mut spiral = made(&[("yaw", "0"), ("pitch", "0")]);
-            let ink = spiral.ink;
-            spiral.subject =
-                Some(Subject::new(&half, 1.0, Fit::Contain, floor, Tones::PLAIN, false, ink));
+            let laying = Laying { floor, ..plainly(&spiral) };
+            spiral.subject = Some(Subject::new(&half, laying));
             drawn(&spiral.picture(WIDE, TALL, 0.2))
         };
 
         assert!(under(0.2) > 0, "the crowd was taken for paper under a cut it stands over");
         assert_eq!(under(0.7), 0, "the crowd stood on light the cut had taken for paper");
+    }
+
+    /// A picture whose light never rises far — pale text on a dark field, which
+    /// is the commonest thing anybody screenshots — read against its own two
+    /// ends rather than against the whole of a range it never reaches.
+    ///
+    /// The crowd carries light as the size of a mark, so this is not a matter of
+    /// a picture arriving dim. Read as it stands there is nothing here at all:
+    /// every pixel of the subject is under the paper cut, and the frame comes
+    /// back with the drift on it and no sign a file was ever opened.
+    #[test]
+    fn a_picture_that_never_gets_bright_is_opened_out_to_its_own_ends() {
+        let dim = painted(|across, _| if across < 16 { [8, 8, 8, 255] } else { UNLIT });
+        let opened_to = |open| {
+            let mut spiral = made(&[("yaw", "0"), ("pitch", "0")]);
+            let laying = Laying { open, ..plainly(&spiral) };
+            spiral.subject = Some(Subject::new(&dim, laying));
+            drawn(&spiral.picture(WIDE, TALL, 0.2))
+        };
+
+        assert_eq!(opened_to(0.0), 0, "the picture was read as if it had the range it has not");
+        assert!(opened_to(1.0) > 100, "only {} pixels were lit", opened_to(1.0));
+    }
+
+    /// A picture all one tone has no two ends to be opened out to, and opening
+    /// it anyway would make its own noise the subject.
+    #[test]
+    fn a_picture_of_one_tone_is_left_where_it_stands() {
+        let flat = |shade| painted(move |_, _| [shade, shade, shade, 255]);
+        let over = |picture: &RgbaImage| drawn(&carrying(picture, false).picture(WIDE, TALL, 0.2));
+
+        assert_eq!(over(&flat(8)), 0, "a picture of paper was opened into a subject");
+        assert!(over(&flat(255)) > 100, "a picture of light was lost");
     }
 
     #[test]
