@@ -219,7 +219,9 @@ export const TOOLS: Tool[] = [
           { kind: "range", flag: "count", label: "Particles", min: 500, max: 40000, step: 500, value: 17000 },
           // The plane is invisible, so this buys nothing but the accuracy of the
           // edge the crowd is hidden behind.
-          { kind: "range", flag: "mesh", label: "Surface", min: 32, max: 280, step: 8, value: 130 },
+          // Stepped in tens from thirty, so the default is a place the slider
+          // can actually stand rather than the nearest notch to it.
+          { kind: "range", flag: "mesh", label: "Surface", min: 30, max: 280, step: 10, value: 130 },
           // Not a setting so much as another draw of the same piece: it settles
           // where every particle lies and how large it is, and nothing else.
           { kind: "range", flag: "seed", label: "Arrangement", min: 1, max: 99, step: 1, value: 7 },
