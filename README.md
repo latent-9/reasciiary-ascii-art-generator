@@ -210,10 +210,14 @@ It takes the file the same way the other two do, and the same flags say how to
 read it — `--invert` and `--contrast` for which end of it is the subject and how
 hard, `--color` to give each particle the colour it is standing on instead of the
 ink. `--spread` is how much of the disc it covers, and past a whole the crowd is
-standing on the middle of it, which is a crop rather than a fit. With no file at
-all it is the drift alone, which is how the piece was composed and a thing in its
-own right; `--bare` asks for that with one open, because the window always has
-one.
+standing on the middle of it, which is a crop rather than a fit. `--fit` is the
+other half of that question, and it is the flat read's word for the same thing: a
+disc is round and a photograph is not, so `contain` stands the whole picture
+inside the disc and leaves the near and far of it empty, while `cover` fills the
+disc and lets the ends of the picture walk out past the last particle. With no
+file at all it is the drift alone, which is how the piece was composed and a
+thing in its own right; `--bare` asks for that with one open, because the window
+always has one.
 
 The plane is drawn in the paper's own colour, so none of it is ever seen. That is
 deliberate, and it is the whole reason this one ends in pixels: what the plane is
@@ -374,6 +378,7 @@ And its own on top:
 | | `--seed` | which field | `7` |
 | `spiral` | *(first word)* | the drawing or picture to lay on the disc, or `--text` for one inline | |
 | | `--spread` | how much of the disc it covers; past a whole crops it | `1` |
+| | `--fit` | `contain` to stand it inside the disc, `cover` to fill it | `contain` |
 | | `--bare` | the drift on its own, with nothing laid under it | off |
 | | `--count` | particles in the drift | `17000` |
 | | `--mesh` | quads a side the plane is cut into | `130` |

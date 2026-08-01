@@ -51,7 +51,7 @@ use crate::art::generator::{Generator, PixelGenerator};
 use crate::art::motion::scatter;
 use crate::art::params::Params;
 use crate::art::raster::{Raster, Seen};
-use crate::art::read::{open, raster_of, Source, Tones};
+use crate::art::read::{open, raster_of, Fit, Source, Tones};
 
 use super::ascii::Vector3;
 
@@ -266,9 +266,17 @@ struct Subject {
 }
 
 impl Subject {
-    /// `spread` is how far over the disc the picture is laid, and `ink` what the
-    /// crowd draws in when the picture's own colours are not wanted.
-    fn new(picture: &RgbaImage, spread: f64, tones: Tones, colored: bool, ink: [f32; 3]) -> Self {
+    /// `spread` is how far over the disc the picture is laid, `fit` how a
+    /// picture that is not square meets a disc that is, and `ink` what the crowd
+    /// draws in when the picture's own colours are not wanted.
+    fn new(
+        picture: &RgbaImage,
+        spread: f64,
+        fit: Fit,
+        tones: Tones,
+        colored: bool,
+        ink: [f32; 3],
+    ) -> Self {
         let (wide, tall) = (picture.width().max(1), picture.height().max(1));
         // In proportion, and only ever smaller: a picture already coarser than
         // the crowd is at the size the crowd can show, and blowing it up would
@@ -296,13 +304,23 @@ impl Subject {
         // crowd is what has to carry it: any wider and the corners of it are out
         // where there is nobody standing.
         let disc = (START + TRAVEL) * spread;
-        let long = wide.max(tall) as f64;
+        // Which side of the picture is made to span the disc. The long one puts
+        // the whole picture inside it and leaves the near and far ends of the
+        // disc to nobody — a wide photograph on a round disc reaches a band
+        // across the middle and no further. The short one fills the disc and
+        // walks the ends of the picture out past the last particle, where they
+        // are simply never stood on: a crop that costs nothing to make, because
+        // nothing off the disc was ever going to be read.
+        let side = match fit {
+            Fit::Contain => wide.max(tall),
+            Fit::Cover => wide.min(tall),
+        } as f64;
         Self {
             light,
             tint,
             wide: wide as usize,
             tall: tall as usize,
-            half: (disc * wide as f64 / long, disc * tall as f64 / long),
+            half: (disc * wide as f64 / side, disc * tall as f64 / side),
         }
     }
 
@@ -474,12 +492,15 @@ fn assemble(params: &Params) -> Result<Spiral, String> {
     // asks for a contrast the app cannot give is refused rather than quietly
     // drawn without it.
     let over = spread(params.f64("spread", 1.0)?);
+    // All of the picture unless the disc being full matters more, which is the
+    // same fallback the flat read makes.
+    let fit = Fit::from_params(params, Fit::Contain)?;
     let tones = Tones::from_params(params)?;
     let colored = params.is_set("color");
 
     // Anything the app can open is a subject here, and none is a subject too:
     // without one the drift is drawn in its own ink, as it always was.
-    let laid = |picture: &RgbaImage| Subject::new(picture, over, tones, colored, ink);
+    let laid = |picture: &RgbaImage| Subject::new(picture, over, fit, tones, colored, ink);
     let written = |text: &str| laid(&raster_of(&AsciiCanvas::from_text(text)));
     // On a command line, no subject is a line with no file on it. The window has
     // no such line — it carries one file between all of its tools and hands it to
@@ -665,8 +686,12 @@ mod tests {
     /// The crowd with a picture on it, seen square on so the picture is where
     /// the plane says it is rather than where the camera has swung it to.
     fn carrying(picture: &RgbaImage, colored: bool) -> Spiral {
+        laid(picture, colored, Fit::Contain)
+    }
+
+    fn laid(picture: &RgbaImage, colored: bool, fit: Fit) -> Spiral {
         let mut spiral = made(&[("yaw", "0"), ("pitch", "0")]);
-        spiral.subject = Some(Subject::new(picture, 1.0, Tones::PLAIN, colored, spiral.ink));
+        spiral.subject = Some(Subject::new(picture, 1.0, fit, Tones::PLAIN, colored, spiral.ink));
         spiral
     }
 
@@ -692,6 +717,20 @@ mod tests {
         let half = drawn(&carrying(&painted(|_, _| [128, 128, 128, 255]), false).picture(WIDE, TALL, 0.2));
         assert!(half > 0, "the crowd went out altogether");
         assert!(half * 4 < full * 3, "{half} lit against {full} in the full of the light");
+    }
+
+    /// A picture that is not square meeting a disc that is. Contained, the whole
+    /// of it stands inside the disc and a wide one reaches a band across the
+    /// middle with the near and far ends left to nobody. Covering, the disc is
+    /// full and the ends of the picture are what goes.
+    #[test]
+    fn a_wide_picture_stands_inside_the_disc_or_is_laid_across_it() {
+        let wide = RgbaImage::from_fn(32, 8, |_, _| Rgba(LIT));
+        let over = |fit| drawn(&laid(&wide, false, fit).picture(WIDE, TALL, 0.2));
+
+        let (inside, across) = (over(Fit::Contain), over(Fit::Cover));
+        assert!(inside > 0, "the picture was lost altogether");
+        assert!(across > inside * 2, "{across} lit against {inside} stood inside the disc");
     }
 
     /// Which way up and which way round it lies. A sign read the wrong way here

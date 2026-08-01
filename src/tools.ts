@@ -235,6 +235,17 @@ export const TOOLS: Tool[] = [
           // is standing on the middle of it, which is a crop rather than a fit
           // and a fair thing to want.
           { kind: "range", flag: "spread", label: "Spread", min: 0.2, max: 2, step: 0.05, value: 1 },
+          // The disc is round and a photograph is not, so one of the two has to
+          // give. Contained leaves the near and far of the disc empty; covering
+          // fills it and crops the ends of the picture. The same word and the
+          // same two answers as the flat read.
+          {
+            kind: "choice",
+            flag: "fit",
+            label: "Fit",
+            value: "contain",
+            options: ["contain", "cover"],
+          },
           ...TONES,
         ],
       },
