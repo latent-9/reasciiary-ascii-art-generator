@@ -1,7 +1,8 @@
 # Asciiary
 
-Five tools that end in the same place: a grid of characters, lit, and written out
-as an MP4, a GIF, a PNG or more text.
+Six tools and one exporter. Five of them end in a grid of characters, lit, and
+written out as an MP4, a GIF, a PNG or more text. The sixth ends in pixels: the
+grid is one way to land a frame rather than the point of the thing.
 
 | Tool | |
 | --- | --- |
@@ -10,6 +11,7 @@ as an MP4, a GIF, a PNG or more text.
 | `scene` | a sphere, torus, cube or knot cut from a formula and turned |
 | `media` | a drawing, a picture or an animation read flat as glyphs |
 | `gen2d` | a flow field drawn in pixels and read back as glyphs |
+| `spiral` | a wave winding out from the middle under a drift of particles |
 
 The renderers `ascii` borrows from all start with a mesh somebody modelled. It
 starts with a file nobody modelled anything in, so it needs one rule they do not:
@@ -155,10 +157,10 @@ at both ends of it, so no frame is the one where every line restarts at once.
 
 ## The pieces
 
-`loops` is the odd one out: every other tool is a way of looking at something you
-bring, and this one brings the subject as well. A piece is a finished animation
-with a dial or two on it, made to be exported — a loop that meets itself, at a
-size that can be posted.
+`loops` and the spiral below are the two that bring their own subject; every
+other tool is a way of looking at something somebody else made. A piece is a
+finished animation with a dial or two on it, made to be exported — a loop that
+meets itself, at a size that can be posted.
 
 | `--piece` | |
 | --- | --- |
@@ -180,6 +182,40 @@ The pieces are written from the ideas in
 rather than from its source, which reserves its rights. What is borrowed is the
 craft: phase instead of a clock, noise walked round a circle, easing that
 arrives, and the taste for a figure that rearranges itself and comes back.
+
+## The one that is not characters
+
+`spiral` is a plane and a crowd. The plane's height is a plain sine wave delayed
+by how far out a point lies *and* by which way round it lies — and a delay that
+reads the angle is a spiral, so the crest winds outward instead of ringing. The
+crowd is seventeen thousand particles, each on its own fixed ray, crawling out
+from the middle a little above the surface and rising and falling with it.
+
+The plane is drawn in the paper's own colour, so none of it is ever seen. That is
+deliberate, and it is the whole reason this one ends in pixels: what the plane is
+there for is to stand in the way. A particle over the far slope of a swell is
+hidden by the near one, and that occlusion is the only thing saying the crowd
+lies on a surface rather than swimming in a fog. Read back as characters the
+plane would have to take a shade of its own, and the piece would be a lit relief
+with some dust on it — a different picture.
+
+So it hands the exporter a frame directly, and what it draws into is a raster
+with a depth buffer: `1/z` interpolated across a triangle, because that is the
+part that stays straight in screen space; a near plane measured in the world
+rather than on the picture, so the same scene survives being asked for at another
+size; and discs rather than squares, at the sizes the particles run to. Nothing
+about the export changes for any of it. The tool reports a period like every
+other, the loop is closed the same way, and the same MP4 comes out the far end.
+
+Every length in it is a fraction of the frame's height, which is what lets one
+set of numbers compose both a preview and a poster: the eye stands at the
+distance where the lens takes in exactly one frame from top to bottom, so a
+figure half a frame tall fills half the picture whatever size the picture was
+asked for.
+
+Like the pieces, it is written from the idea rather than from the
+[sketch of the same surface](https://github.com/Bleuje/processing-animations-code)
+it follows, which reserves its rights.
 
 ## Moving a surface
 
@@ -208,12 +244,18 @@ bun run tauri dev
 ```
 
 The toolbar picks the tool; the panel beside the preview is that tool's own
-options and nothing else, with what the export writes at the foot of it. Two of
-the five are in it: the lift, and the flat read of the same file. The three that
-bring their own subject are not, because a formula turning on its own is a poor
-thing to open an app on — nothing on screen was asked for, and the tool somebody
-came here to use was three tabs along. They are still in the registry, and the
-command line asks for them by name.
+options and nothing else, with what the export writes at the foot of it. Three of
+the six are in it: the lift, the flat read of the same file, and the spiral. The
+other three bring their own subject and are not, because a formula turning on its
+own is a poor thing to open an app on — nothing on screen was asked for, and the
+tool somebody came here to use was three tabs along. They are still in the
+registry, and the command line asks for them by name.
+
+The spiral brings its own subject too, and is there anyway. It is composed by
+eye — the angle it is seen from and how thick the crowd is are the whole of the
+piece — and those are questions a command line answers one rendered file at a
+time. The app still opens on the lift, so it is a tab away rather than in the
+way.
 
 The file is opened once and both tools read it, because it is the same file:
 open a drawing, see what the glyphs make of it flat, then lift it. Nothing is
@@ -228,15 +270,19 @@ drawing finds it where it was left.
 
 Three schemes sit in the toolbar, and the swatch beside them recolours the object
 itself to anything — the scheme keeps the paper and the window's own text, so a
-green object on black cannot take the controls with it. Nothing re-renders for a
-colour: the frames are characters, so it costs a CSS property until an export
-reads it.
+green object on black cannot take the controls with it. Where the frames are
+characters nothing re-renders for a colour: it costs a CSS property until an
+export reads it. The spiral is the exception, and has to be drawn again — no
+property on the page reaches inside a picture.
 
 The preview does not chase the spin a frame at a time. One loop is rendered in
 full, then played from memory at the rate that covers it exactly once, so what
 the window shows is the animation an export writes rather than an approximation
 of it that stutters when the machine is busy. A single frame is drawn first so a
-tool that takes a while over a whole loop still answers immediately.
+tool that takes a while over a whole loop still answers immediately. A loop of
+pictures is rendered smaller and from fewer frames than a loop of text, because
+a frame of it crosses to the window as a hundred kilobytes of PNG rather than as
+a few of text.
 
 `ffmpeg` has to be installed for GIF and MP4; PNG and TXT need nothing.
 
@@ -267,9 +313,18 @@ Every tool takes these, whatever it draws:
 | Flag | | Default |
 | --- | --- | --- |
 | `--duration` `--fps` | how long the file runs, and how smoothly | `4` `20` |
-| `--columns` `--rows` | the character grid | `160` `48` |
+| `--columns` `--rows` | the grid, which is what sizes a picture as well | `160` `48` |
 | `--scale` | pixels per point | `2` |
 | `--ink` `--paper` | the object and what is behind it, as hex | `#e7e7e7` `#0c0c0e` |
+| `--samples` | renders averaged into one written frame | `1` |
+| `--shutter` | how much of the gap to the next frame they cover | `1` |
+
+`--samples` is what makes a fast thing look fast. One render a frame catches an
+instant, and several of them averaged across the gap to the next frame smear it
+the way a camera would — `--samples 5 --shutter 1.2` is the setting the sketches
+this borrows from record at. Only a written file pays for it: the preview is
+always a single sample, which is the same split those sketches make between
+watching a piece and recording it.
 
 And its own on top:
 
@@ -292,9 +347,14 @@ And its own on top:
 | | `--lines` `--steps` | how many strokes, and how far each is traced | `640` `120` |
 | | `--grain` `--swirl` | how fine the field is, and how hard it turns | `1.3` `1.0` |
 | | `--seed` | which field | `7` |
+| `spiral` | `--count` | particles in the drift | `17000` |
+| | `--mesh` | quads a side the plane is cut into | `130` |
+| | `--seed` | which arrangement of the drift | `7` |
 
-A tool that turns takes `--yaw` `--pitch` `--zoom` and either `--turns`, whole
-turns over one loop, or `--still` for none. Anything lit takes `--grade` —
+Anything with a camera takes `--yaw` `--pitch` `--zoom`, and anything that moves
+takes `--still` to hold it. A tool that turns over its loop takes `--turns` on
+top, whole turns over one of them — the spiral has none, because what travels in
+it is the wave rather than the eye. Anything lit takes `--grade` —
 `shades`, `detailed` or `ink`, defaulting to `detailed`. Anything that loops
 takes `--period`:
 how many seconds one loop lasts, which is the whole clip unless less is asked
@@ -335,11 +395,12 @@ src-tauri/src/
   lib.rs             the Tauri commands the window calls
   repl/              the command language behind the typed line
   art/
-    generators/      the five tools
+    generators/      the six tools
       loops/         a file to a piece, and the two paths they take out of here
     filters/         post-processing — the seam is cut, nothing fills it yet
     motion.rs        phase instead of a clock: easing, and noise round a circle
     surface.rs       a surface cut from two parameters, and a tube round a curve
+    raster.rs        triangles and dots to pixels, with a depth buffer
     read.rs          a picture read back as glyphs, shared by two tools
     canvas.rs        the character grid, and the ink ramp heights are read from
     glyphs.rs        which character a shaded cell comes out as
