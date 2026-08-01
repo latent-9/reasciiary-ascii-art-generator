@@ -228,6 +228,15 @@ function buildThemes() {
 
 const title = (word: string) => word[0].toUpperCase() + word.slice(1);
 
+/// Every slider on the panel, by the flag it carries, each able to show its
+/// flag's value again.
+///
+/// A slider normally knows the value better than anyone, being the only thing
+/// that sets it. The camera's three are not like that — the preview turns and
+/// zooms under the hand as well — so those rows have to be told when a number
+/// they did not set has moved.
+const dials = new Map<string, () => void>();
+
 /// The tool's own groups, plus the one group that is nobody's tool flag: what
 /// the export writes.
 function panelGroups(tool: Tool): Group[] {
@@ -263,6 +272,10 @@ function buildControl(control: Control): HTMLElement {
       show();
       write(control.flag, input.value);
       changed(control.flag);
+    });
+    dials.set(control.flag, () => {
+      input.value = read(control.flag) ?? String(control.value);
+      show();
     });
     holder.append(row(control.label, value), input);
     return holder;
@@ -307,6 +320,9 @@ function buildControl(control: Control): HTMLElement {
 function buildPanel() {
   const tool = state.tool;
   blurb.textContent = tool.blurb;
+  // The rows about to be replaced are gone; holding on to them would be holding
+  // on to the last tool's sliders.
+  dials.clear();
   options.replaceChildren(
     ...panelGroups(tool).map((group) => {
       const section = document.createElement("section");
@@ -637,11 +653,21 @@ function showSource() {
   fileLabel.textContent = parts.join("   ·   ");
 }
 
-/// Turning and zooming happen on the preview rather than on three more sliders.
+/// The panel showing a camera that was moved on the preview instead.
+///
+/// A tab that carries no camera sliders has nothing here to tell, and asking
+/// costs nothing.
+function showCamera() {
+  for (const turn of TURNS) dials.get(turn)?.();
+}
+
+/// Turning and zooming happen on the preview first of all.
 ///
 /// They are the controls a drawing is actually framed with, and a slider is a
-/// poor handle for an angle: finding the view you want means reading a number,
-/// guessing, and looking again. Dragging is the same act as the thing it does.
+/// poor handle for hunting an angle: it means reading a number, guessing, and
+/// looking again, where dragging is the same act as the thing it does. A tab
+/// may offer them as sliders too, for saying exactly where a view already found
+/// by hand was — but the hand comes first, and the sliders follow it.
 function bindCamera() {
   let dragging = false;
   let lastX = 0;
@@ -667,6 +693,7 @@ function bindCamera() {
     camera.pitch = clamp(camera.pitch - (event.clientY - lastY) * 0.25, -90, 90);
     lastX = event.clientX;
     lastY = event.clientY;
+    showCamera();
     showFrame();
   });
 
@@ -690,6 +717,7 @@ function bindCamera() {
       // Multiplicative, so a notch is the same proportion of the size at every
       // zoom rather than a bigger jump the further out you are.
       camera.zoom = clamp(camera.zoom * Math.exp(-event.deltaY * 0.002), 0.25, 4);
+      showCamera();
       showFrame();
       invalidate();
     },
@@ -699,6 +727,7 @@ function bindCamera() {
   screen.addEventListener("dblclick", () => {
     if (!turnable()) return;
     Object.assign(session().camera, state.tool.camera);
+    showCamera();
     invalidate();
   });
 }
