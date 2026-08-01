@@ -189,8 +189,14 @@ arrives, and the taste for a figure that rearranges itself and comes back.
 `spiral` is a plane with marks over it. The plane's height is a plain sine wave
 delayed by how far out a point lies *and* by which way round it lies — and a
 delay that reads the angle is a spiral, so the crest winds outward instead of
-ringing. What stands over it is drawn one of two ways, and which one depends on
-whether a file was opened.
+ringing. How much of each delay there is settles what the piece is, and both are
+asked for: `--rings` is how many times the wave repeats on the way out, `--arms`
+is how many arms it winds them into. One arm is the piece as it was composed; six
+is a rosette, none is rings growing out of the middle rather than a spiral, and
+below none it winds the other way. Whole numbers, and not for tidiness — the
+second delay is read off an angle, and an angle wraps, so anything else leaves a
+crease running out of the middle of every frame. What stands over the plane is
+drawn one of two ways, and which one depends on whether a file was opened.
 
 With nothing laid on the disc it is a drift: seventeen thousand particles, each
 on its own fixed ray, crawling out from the middle a little above the surface and
@@ -447,6 +453,9 @@ And its own on top:
 | | `--open` | how far it is opened out to its own darkest and brightest | `1` |
 | | `--floor` | how faint the light may get before it counts as paper | `0.04` |
 | | `--windings` | turns of the line that draws it, middle to rim | `110` |
+| | `--spin` | turns the line makes over a loop; `0` holds it still | `1` |
+| | `--rings` | times the wave repeats between the middle and the rim | `8` |
+| | `--arms` | arms it winds them into; `0` is rings, below it winds back | `1` |
 | | `--bare` | the drift on its own, with nothing laid under it | off |
 | | `--count` | particles in the drift | `17000` |
 | | `--mesh` | quads a side the plane is cut into | `130` |
@@ -455,11 +464,12 @@ And its own on top:
 Anything with a camera takes `--yaw` `--pitch` `--zoom`, and anything that moves
 takes `--still` to hold it. A tool that turns over its loop takes `--turns` on
 top, whole turns over one of them — the spiral has none, because what travels in
-it is the wave rather than the eye. Anything lit takes `--grade` —
-`shades`, `detailed` or `ink`, defaulting to `detailed`. Anything that loops
-takes `--period`:
-how many seconds one loop lasts, which is the whole clip unless less is asked
-for.
+it is the wave rather than the eye. Its `--spin` is not that flag under another
+name: the eye stays where it was put and the line goes round beneath it, which
+is a different piece from the same view being carried around a still one.
+Anything lit takes `--grade` — `shades`, `detailed` or `ink`, defaulting to
+`detailed`. Anything that loops takes `--period`: how many seconds one loop
+lasts, which is the whole clip unless less is asked for.
 
 `ascii` and `scene` also take the movement:
 
