@@ -273,6 +273,25 @@ export const TOOLS: Tool[] = [
         ],
       },
       {
+        // What the piece is, rather than what is laid on it. The wave is one
+        // sine held back by how far out a point lies and by which way round it
+        // lies, and these two are how much of each — which between them are the
+        // difference between a spiral, a set of rings growing out of the middle,
+        // and a disc that lifts all at once.
+        title: "Wave",
+        controls: [
+          // Whole numbers, and not for tidiness: the second delay is read off an
+          // angle, and an angle wraps, so anything but a whole number leaves a
+          // crease running out of the middle of every frame. The backend holds
+          // it to one either way; the slider steps in ones so the panel is not
+          // showing a number the drawing is ignoring.
+          { kind: "range", flag: "arms", label: "Arms", min: -6, max: 6, step: 1, value: 1 },
+          // None of them is the wave that does not travel out at all, which with
+          // no arms either is the whole disc breathing in one.
+          { kind: "range", flag: "rings", label: "Ripples", min: 0, max: 20, step: 1, value: 8 },
+        ],
+      },
+      {
         // What the disc does with nothing laid on it. None of it is reached
         // while a file is open: a picture is drawn by the winding line, and
         // these settle the scatter that stands in for it when there is none.
@@ -312,7 +331,23 @@ export const TOOLS: Tool[] = [
       },
       // The loop is as long as the export is, so the length in the output group
       // is the period as well and there is nothing to set here twice.
-      { title: "Motion", controls: [STILL] },
+      {
+        title: "Motion",
+        controls: [
+          // How many times the line goes round in the time the loop takes.
+          // Whole for the same reason the arms are, and none of them is a real
+          // answer: the line stops travelling and the swell is left as the only
+          // thing moving under it, which is the piece read as a picture rather
+          // than as a spin. Nothing to the drift, which has no turn of its own
+          // — the same way the drift's own settings are nothing to a picture.
+          //
+          // Not [TURNS], which every other tool that moves already carries and
+          // which turns the eye. What goes round here is the line, with the eye
+          // held where it was put; the two would be different pieces.
+          { kind: "range", flag: "spin", label: "Spin", min: -4, max: 4, step: 1, value: 1 },
+          STILL,
+        ],
+      },
     ],
   },
 ];
