@@ -6,9 +6,11 @@
 //! The figure is one plane and one crowd. The plane's height is a plain sine
 //! wave, delayed by how far out a point is *and* by which way round it lies —
 //! and a delay that reads the angle is a spiral, so the crest winds outward
-//! instead of ringing. The crowd is particles, each on its own fixed ray,
-//! crawling out from the middle a little above the surface and rising and
-//! falling with it.
+//! instead of ringing. How much of each delay there is settles what the piece
+//! is: rings growing out of the middle where no angle is read, one arm or six
+//! where it is, winding either way round. See [`Wave`]. The crowd is particles,
+//! each on its own fixed ray, crawling out from the middle a little above the
+//! surface and rising and falling with it.
 //!
 //! The plane is drawn in the paper's own colour, so nothing of it is visible.
 //! That is deliberate, and it is the whole reason this tool draws pixels: what
@@ -38,8 +40,11 @@
 //! evenly spaced along its own run, so a full period walks each copy onto where
 //! the next one stood — and the one that falls off the end is at the end of the
 //! run, where its size is nought, as is the one arriving at the start. The
-//! winding turns one whole revolution over the period, which puts every mark
-//! back where it started. Nothing appears or disappears at the seam.
+//! winding turns a whole number of revolutions over the period, which puts every
+//! mark back where it started, and none of them is a whole number too. Nothing
+//! appears or disappears at the seam, at any setting the tool will take — which
+//! is why the two that are read off an angle are held to whole numbers rather
+//! than offered as they come.
 //!
 //! [ref]: https://github.com/Bleuje/processing-animations-code
 
@@ -91,15 +96,18 @@ const SWELL: f64 = 1.0 / 20.0;
 /// line rise and fall over it, not enough to pull the drawing apart.
 const SETTLED: f64 = 0.25;
 
-/// How many times the wave repeats between the middle and the rim, and how far
-/// round it is dragged over a whole turn.
+/// The wave the piece was composed on: how many times it repeats between the
+/// middle and the rim, and how many arms it winds those repeats into.
 ///
-/// The second is one, and has to be a whole number: it is read off an angle, and
-/// an angle is a quantity that comes back to where it started. Anything else
-/// leaves a step down the ray where the angle wraps — a crease running out of
-/// the middle of the piece, in every frame.
+/// Where it opens rather than the whole of what it can be — both are asked for
+/// now. See [`Wave`], and [`rings`] and [`arms`] for what either is held to.
 const RINGS: f64 = 8.0;
-const TWIST: f64 = 1.0;
+const ARMS: f64 = 1.0;
+
+/// How many turns the line makes over a period, as it was composed.
+///
+/// One, which is the amount that leaves every mark of it where it started.
+const SPIN: f64 = 1.0;
 
 /// How far a particle rides above the surface, so it is not fighting the plane
 /// it lies on for the same pixel.
@@ -220,6 +228,44 @@ fn windings(given: usize) -> usize {
 /// hides things behind. Too coarse and a swell occludes in steps.
 fn mesh(given: usize) -> usize {
     given.clamp(16, 400)
+}
+
+/// How many times the wave repeats between the middle and the rim.
+///
+/// None of them is a real answer and not a broken one: with no repeat out the
+/// ray the delay is read off the angle alone, and the disc is one swell sweeping
+/// round instead of a run of them travelling out. The ceiling is where the
+/// crests stand closer together than the plane is cut, and a wave finer than the
+/// surface carrying it is drawn as a shudder rather than as a wave.
+fn rings(given: f64) -> f64 {
+    given.clamp(0.0, 20.0)
+}
+
+/// How many arms the crest winds into, and which way round it winds.
+///
+/// Whole, and not as a matter of taste: the delay is read off an angle, and an
+/// angle is a quantity that comes back to where it started. Anything else leaves
+/// a step down the ray where the angle wraps — a crease running out of the
+/// middle of the piece, in every frame.
+///
+/// None of them is the wave with no twist in it at all, which is rings growing
+/// out of the middle rather than a spiral. Below none it winds the other way.
+/// The ceiling is where the arms are packed so closely at the middle that what
+/// is there is a knot rather than a figure.
+fn arms(given: f64) -> f64 {
+    given.round().clamp(-6.0, 6.0)
+}
+
+/// How many turns the line makes over a period.
+///
+/// Whole for the reason a period is a period: the line is wound once and turned
+/// through the picture, so anything but a whole turn ends the loop with every
+/// mark of it somewhere other than where it set off. None of them holds the line
+/// still and leaves the swell the only thing moving under it, which is the piece
+/// with its grain at rest — a picture rather than a spin. Below none it turns
+/// against the wave.
+fn spin(given: f64) -> f64 {
+    given.round().clamp(-4.0, 4.0)
 }
 
 /// How far over the disc a subject is spread, as a share of the whole of it.
@@ -359,29 +405,44 @@ struct Point {
     z: f64,
 }
 
-/// The plane at `(x, y)` out from its middle, at this phase, swelling this much.
+/// The delay the plane's height is read through, which is the whole of what
+/// shape the piece has.
 ///
-/// The delay is what makes it a spiral: so many turns of the wave for the
-/// distance out, and one more for the way round. Both feed the same sine, so the
-/// crest is a curve that winds rather than a ring that grows.
-///
-/// The height is asked for rather than taken from [`SWELL`] because the plane
-/// stands lower under a picture — see [`SETTLED`] — and the marks and the plane
-/// they lie on have to agree about it. Told two different heights they would
-/// disagree by more than the marks ride above the plane, and half the piece
-/// would sink into a surface drawn in the paper's own colour and go out.
-fn surface(x: f64, y: f64, phase: f64, swell: f64) -> Point {
-    let out = (x * x + y * y).sqrt();
-    let delay = out * RINGS + TWIST * y.atan2(x) / TAU;
-    // Taller further out, and by a root rather than in step, so the middle is
-    // not a flat plate and the rim is not a wall.
-    let height = swell * out.sqrt();
-    Point {
-        x: x * REACH,
-        y: y * REACH,
-        // Mostly under the plane and a little over it, which is what leaves the
-        // swells reading as troughs with crests drawn between them.
-        z: height * (4.0 * (TAU * (phase - delay)).sin() - 2.0),
+/// The two numbers are one thing said about two directions, so they are carried
+/// as one: how far the wave is put off for the distance out, and how far for the
+/// way round. A delay that reads only the first is rings growing out of the
+/// middle. One that reads both is a spiral, because a crest held back further
+/// along the angle has to lean as it travels — and how many arms it leans into
+/// is the second number.
+#[derive(Clone, Copy)]
+struct Wave {
+    rings: f64,
+    arms: f64,
+}
+
+impl Wave {
+    /// The plane at `(x, y)` out from its middle, at this phase, swelling this
+    /// much.
+    ///
+    /// The height is asked for rather than taken from [`SWELL`] because the
+    /// plane stands lower under a picture — see [`SETTLED`] — and the marks and
+    /// the plane they lie on have to agree about it. Told two different heights
+    /// they would disagree by more than the marks ride above the plane, and half
+    /// the piece would sink into a surface drawn in the paper's own colour and
+    /// go out.
+    fn at(&self, x: f64, y: f64, phase: f64, swell: f64) -> Point {
+        let out = (x * x + y * y).sqrt();
+        let delay = out * self.rings + self.arms * y.atan2(x) / TAU;
+        // Taller further out, and by a root rather than in step, so the middle
+        // is not a flat plate and the rim is not a wall.
+        let height = swell * out.sqrt();
+        Point {
+            x: x * REACH,
+            y: y * REACH,
+            // Mostly under the plane and a little over it, which is what leaves
+            // the swells reading as troughs with crests drawn between them.
+            z: height * (4.0 * (TAU * (phase - delay)).sin() - 2.0),
+        }
     }
 }
 
@@ -589,6 +650,12 @@ pub struct Spiral {
     windings: usize,
     /// How tall the wave stands, which a picture settles — see [`SETTLED`].
     swell: f64,
+    /// What shape it stands in.
+    wave: Wave,
+    /// How many turns the line makes over a period. Nothing to the drift, which
+    /// has no turn of its own — its motion is the walk out and the swell under
+    /// it, the same way the crowd's own settings are nothing to a laid picture.
+    spin: f64,
     mesh: usize,
     view: View,
     /// The lens, narrowed to magnify.
@@ -624,7 +691,10 @@ impl Spiral {
         let step = 1.0 / self.mesh.max(1) as f64;
         let out = |count: usize| count as f64 * step - 0.5;
         let grid: Vec<Seen> = (0..side * side)
-            .map(|at| self.view.sees(surface(out(at % side), out(at / side), phase, self.swell)))
+            .map(|at| {
+                let point = self.wave.at(out(at % side), out(at / side), phase, self.swell);
+                self.view.sees(point)
+            })
             .collect();
 
         for across in 0..self.mesh {
@@ -646,13 +716,13 @@ impl Spiral {
 
     /// The picture, drawn by the line wound out through it.
     ///
-    /// The line turns a whole revolution over the period while the picture holds
-    /// still under it, so what moves is the grain and not the subject — and a
-    /// whole turn is the one amount that leaves the line where it found it.
+    /// The line turns over the period while the picture holds still under it, so
+    /// what moves is the grain and not the subject — and whole turns are the one
+    /// amount that leaves the line where it found it. See [`spin`].
     fn draw(&self, raster: &mut Raster, subject: &Subject, winding: &Winding, phase: f64) {
-        let turn = TAU * phase;
+        let spun = TAU * self.spin * phase;
         for &(out, angle) in &winding.marks {
-            let angle = angle + turn;
+            let angle = angle + spun;
             let (x, y) = (out * angle.cos(), out * angle.sin());
             // Where the picture is paper the line is paper: a mark standing off
             // it, or on the dark of it, is not drawn at all. That is what leaves
@@ -666,7 +736,7 @@ impl Spiral {
             // reads a tone. Drawn faintly instead, a picture that is lit nearly
             // everywhere — which is every photograph — leaves every mark
             // standing and merely greys them, and a greyed line is the line.
-            let mut point = surface(x, y, phase, self.swell);
+            let mut point = self.wave.at(x, y, phase, self.swell);
             point.z += RIDE;
             raster.dot(self.view.sees(point), winding.grain * light.sqrt(), tint, 1.0);
         }
@@ -679,7 +749,7 @@ impl Spiral {
             for copy in 0..COPIES {
                 let along = (copy as f64 + walked) / COPIES as f64;
                 let ((x, y), size) = particle.at(along);
-                let mut point = surface(x, y, phase, self.swell);
+                let mut point = self.wave.at(x, y, phase, self.swell);
                 point.z += RIDE;
                 raster.dot(self.view.sees(point), size, self.ink, 1.0);
             }
@@ -774,6 +844,11 @@ fn assemble(params: &Params) -> Result<Spiral, String> {
         winding: None,
         windings: windings(params.usize("windings", 110)?),
         swell: SWELL,
+        wave: Wave {
+            rings: rings(params.f64("rings", RINGS)?),
+            arms: arms(params.f64("arms", ARMS)?),
+        },
+        spin: spin(params.f64("spin", SPIN)?),
         mesh: mesh(params.usize("mesh", 130)?),
         // The angles it was composed at. The plane is turned about its own
         // upright before it is tipped, so half a right angle of yaw puts a
@@ -867,18 +942,123 @@ mod tests {
         assert!(marks < picture.pixels().len() / 2, "{marks} pixels were lit");
     }
 
-    /// The delay reads an angle, and an angle wraps. A twist that was not a
-    /// whole turn would leave a step down the ray where it wraps, so the two
-    /// sides of that ray have to agree.
+    /// The delay reads an angle, and an angle wraps. An arm count that was not
+    /// whole would leave a step down the ray where it wraps, so the two sides of
+    /// that ray have to agree — at every count the tool will take, not only at
+    /// the one it opens on. See [`arms`].
     #[test]
     fn the_wave_has_no_step_where_the_angle_comes_round() {
-        for phase in [0.0, 0.31, 0.68] {
-            for out in [0.1, 0.4, 0.8] {
-                let above = surface(-out, 1e-9, phase, SWELL).z;
-                let below = surface(-out, -1e-9, phase, SWELL).z;
-                assert!((above - below).abs() < 1e-6, "{above} against {below} at {out}");
+        for asked in [-6.0, -1.0, 0.0, ARMS, 3.0, 6.0, 2.4] {
+            let wave = Wave { rings: RINGS, arms: arms(asked) };
+            for phase in [0.0, 0.31, 0.68] {
+                for out in [0.1, 0.4, 0.8] {
+                    let above = wave.at(-out, 1e-9, phase, SWELL).z;
+                    let below = wave.at(-out, -1e-9, phase, SWELL).z;
+                    assert!((above - below).abs() < 1e-6, "{above} against {below} on {asked}");
+                }
             }
         }
+    }
+
+    /// Every shape the tool will take has to come back round as cleanly as the
+    /// one it opens on. That is the whole reason the two counts read off an
+    /// angle are held to whole numbers rather than passed on as they arrive.
+    #[test]
+    fn every_shape_the_tool_offers_closes_its_own_loop() {
+        for shape in [
+            &[("arms", "0")][..],
+            &[("arms", "-3")],
+            &[("arms", "6"), ("rings", "0")],
+            &[("rings", "20")],
+            &[("spin", "0"), ("text", BLOCK)],
+            &[("spin", "-2"), ("text", BLOCK)],
+            &[("arms", "4"), ("rings", "3"), ("spin", "3"), ("text", BLOCK)],
+        ] {
+            let spiral = made(shape);
+            let start = spiral.picture(WIDE, TALL, 0.0);
+            let round = spiral.picture(WIDE, TALL, 1.0);
+            assert_eq!(apart(&start, &round), 0, "{shape:?} did not come back to itself");
+        }
+    }
+
+    /// A count read off an angle is taken to the nearest whole one rather than
+    /// refused: a slider hands over whatever it is dragged to, and a typed line
+    /// asking for two and a half arms is asking for a number of arms.
+    #[test]
+    fn what_is_read_off_an_angle_is_held_to_whole_numbers() {
+        assert_eq!(arms(2.4), 2.0);
+        assert_eq!(arms(-2.6), -3.0);
+        assert_eq!(arms(99.0), 6.0);
+        assert_eq!(spin(0.4), 0.0);
+        assert_eq!(spin(-99.0), -4.0);
+        assert_eq!(rings(-1.0), 0.0);
+        assert_eq!(rings(99.0), 20.0);
+    }
+
+    /// No arms is the delay with no angle left in it, so every point the same
+    /// distance out stands at the same height — rings growing out of the middle,
+    /// which is the one thing a spiral never does.
+    #[test]
+    fn a_wave_with_no_arms_stands_level_all_the_way_round() {
+        let height = |wave: &Wave, out: f64, angle: f64| {
+            wave.at(out * angle.cos(), out * angle.sin(), 0.21, SWELL).z
+        };
+        let ringed = Wave { rings: RINGS, arms: 0.0 };
+        let armed = Wave { rings: RINGS, arms: ARMS };
+        for out in [0.12, 0.3, 0.48] {
+            let round = |wave: &Wave| -> Vec<f64> {
+                (1..8)
+                    .map(|step| height(wave, out, TAU * step as f64 / 8.0) - height(wave, out, 0.0))
+                    .collect()
+            };
+            let level = round(&ringed);
+            let leaning = round(&armed);
+            assert!(level.iter().all(|step| step.abs() < 1e-9), "the rings leaned at {out}");
+            assert!(leaning.iter().any(|step| step.abs() > 1e-6), "the arm stood level at {out}");
+        }
+    }
+
+    /// The other delay is how many times the wave repeats on the way out, so
+    /// asking for more of them puts more crests along the same ray.
+    #[test]
+    fn the_wave_repeats_as_often_as_it_is_asked_to() {
+        let crests = |asked: f64| {
+            let wave = Wave { rings: rings(asked), arms: 0.0 };
+            let along: Vec<f64> = (1..96)
+                .map(|step| {
+                    let out = step as f64 / 192.0;
+                    // Back to the plain sine the height is read through, with
+                    // the lift off the middle and the taper toward it taken out.
+                    wave.at(out, 0.0, 0.0, SWELL).z / (SWELL * out.sqrt()) + 2.0
+                })
+                .collect();
+            along.windows(2).filter(|pair| pair[0] * pair[1] < 0.0).count()
+        };
+        assert!(crests(4.0) > 0, "a wave that repeats four times had no crest in it");
+        assert!(crests(16.0) > crests(4.0), "{} against {}", crests(16.0), crests(4.0));
+    }
+
+    /// A line told not to turn is the piece with its grain at rest, and one told
+    /// to turn four times stands exactly where that line does wherever those
+    /// turns have come round — which is what says the number is turns of the
+    /// line and not some speed it is being dragged at.
+    ///
+    /// Counted in frames rather than in pixels moved: a spiral turned through an
+    /// angle is another spiral, near enough that comparing two of them counts
+    /// the difference between the windings rather than the turn.
+    #[test]
+    fn a_line_makes_whole_turns_or_stands_where_one_at_rest_would() {
+        let resting = made(&[("text", BLOCK), ("spin", "0")]);
+        let turning = made(&[("text", BLOCK), ("spin", "4")]);
+        let side_by_side = |phase: f64| {
+            apart(&resting.picture(WIDE, TALL, phase), &turning.picture(WIDE, TALL, phase))
+        };
+        // A quarter of the way through, four turns have made exactly one, so the
+        // marks are back over the part of the picture they set off from — and
+        // the wave under both is at the same phase, so nothing else can differ.
+        assert_eq!(side_by_side(0.25), 0, "a whole turn landed somewhere else");
+        // An eighth of the way through they have made half of one, and have not.
+        assert!(side_by_side(0.125) > 0, "half a turn landed nowhere at all");
     }
 
     /// A seed is a promise that the same line can be typed twice, and that
@@ -1226,8 +1406,9 @@ mod tests {
     #[test]
     fn a_picture_stands_on_a_disc_that_swells_less_than_the_bare_one() {
         let swing = |spiral: &Spiral| {
-            let over: Vec<f64> =
-                (0..64).map(|step| surface(0.3, 0.0, step as f64 / 64.0, spiral.swell).z).collect();
+            let over: Vec<f64> = (0..64)
+                .map(|step| spiral.wave.at(0.3, 0.0, step as f64 / 64.0, spiral.swell).z)
+                .collect();
             over.iter().cloned().fold(f64::MIN, f64::max) - over.iter().cloned().fold(f64::MAX, f64::min)
         };
         let bare = swing(&made(&[]));
