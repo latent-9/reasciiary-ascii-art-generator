@@ -18,25 +18,28 @@
 //! as characters the plane would have to take a shade of its own, and the piece
 //! would be a lit relief with some dust on it — a different picture.
 //!
-//! A drawing or a photograph can be laid on the disc the drift covers, and then
-//! the crowd is what shows it: a particle takes the light it is standing over as
-//! the size of its mark, the way a halftone takes a tone, and one standing over
-//! the picture's paper is not drawn at all. The picture holds still while the
-//! crowd walks out through it, so what arrives is not the picture but the
-//! picture being carried — thinning where it is dark, riding the swell where the
-//! wave is under it. See [`Subject`].
+//! A drawing or a photograph can be laid on the disc, and then the piece is
+//! drawn a second way. The crowd goes, and in its place the marks stand along
+//! one line wound out from the middle — an engraver's line, thickening where the
+//! light is and thinning to nothing where it is not, so what arrives is the
+//! picture rather than a haze in roughly its shape. Each mark takes the light it
+//! is standing over as its size, the way a halftone takes a tone, and one
+//! standing over the picture's paper is not drawn at all. The picture holds
+//! still while the line turns through it, riding the swell where the wave is
+//! under it. See [`Winding`] and [`Subject`].
 //!
 //! Every length here is a fraction of the frame's height, so the same numbers
 //! compose the preview and the poster. The eye stands at the distance where
 //! [`FIELD`] takes in exactly one of those heights, which is what makes that
 //! true — see [`eye`].
 //!
-//! Both halves close their own loop by construction. The wave depends on the
+//! Every part of it closes its own loop by construction. The wave depends on the
 //! phase only through a sine of it. A particle is drawn as [`COPIES`] copies
 //! evenly spaced along its own run, so a full period walks each copy onto where
 //! the next one stood — and the one that falls off the end is at the end of the
-//! run, where its size is nought, as is the one arriving at the start. Nothing
-//! appears or disappears at the seam.
+//! run, where its size is nought, as is the one arriving at the start. The
+//! winding turns one whole revolution over the period, which puts every mark
+//! back where it started. Nothing appears or disappears at the seam.
 //!
 //! [ref]: https://github.com/Bleuje/processing-animations-code
 
@@ -139,13 +142,13 @@ const FLAT: f32 = 1.0 / 64.0;
 /// Above this much light on average, a picture is mostly its own paper and it is
 /// the ink that gets carried.
 ///
-/// The crowd draws light as the size of a mark, so a picture that is bright
-/// nearly everywhere is a crowd that is full nearly everywhere — a frame nothing
-/// can tell from the drift with no file under it at all. That is not a rare kind
-/// of picture to be handed. A signature, a logo, a diagram, a screenshot of a
-/// page: every one of them is a little ink on a great deal of white, and read
-/// with the bright end for the subject every one of them comes back as the piece
-/// that was already there.
+/// Light is drawn as the size of a mark, so a picture that is bright nearly
+/// everywhere is a line that runs solid nearly everywhere — a coil, with nothing
+/// in it to say a file was ever opened. That is not a rare kind of picture to be
+/// handed. A signature, a logo, a diagram, a screenshot of a page: every one of
+/// them is a little ink on a great deal of white, and read with the bright end
+/// for the subject every one of them comes back as a wound thread and no
+/// subject.
 ///
 /// Well above a half, because a picture with tones either side of the middle is
 /// a photograph and turning a photograph over is never what was meant. It takes
@@ -156,12 +159,11 @@ const MOSTLY: f32 = 0.6;
 ///
 /// Nought reads the light as it stands. A whole puts the picture's own darkest
 /// pixel at paper and its brightest at a full mark, which is the difference
-/// between a low-key source arriving and not: the crowd carries light as the
-/// size of its marks, so a picture whose light never rises far is a picture
-/// drawn entirely in marks too fine to see. A screenshot of pale text on a dark
-/// field is the worst case and a common one — downsampled, every stroke in it
-/// averages away to a few hundredths, and the whole picture comes out under the
-/// paper [`floor`].
+/// between a low-key source arriving and not: light is carried as the size of a
+/// mark, so a picture whose light never rises far is a picture drawn entirely in
+/// marks too fine to see. A screenshot of pale text on a dark field is the worst
+/// case and a common one — downsampled, every stroke in it averages away to a
+/// few hundredths, and the whole picture comes out under the paper [`floor`].
 fn opened(given: f64) -> f64 {
     given.clamp(0.0, 1.0)
 }
@@ -181,6 +183,17 @@ const COPIES: usize = 6;
 /// carpeted anyway.
 fn count(given: usize) -> usize {
     given.clamp(200, 60_000)
+}
+
+/// How many times the line goes round on its way out to the rim.
+///
+/// Below the floor the windings stand so far apart that what is between them is
+/// paper rather than picture, and the piece is a coil with a subject somewhere
+/// behind it. The ceiling is where a mark is finer than the pixel it is drawn on
+/// in anything but a poster, and where the count of them — which grows as the
+/// square of this — starts costing a frame more than the detail is worth.
+fn windings(given: usize) -> usize {
+    given.clamp(8, 200)
 }
 
 /// How finely the plane is cut, in quads along each side.
@@ -266,6 +279,59 @@ impl Particle {
     }
 }
 
+/// The line the marks stand on once a picture is laid on the disc.
+///
+/// The drift cannot draw a picture and was never asked to. It is a scatter, and
+/// a scatter reproduces a picture the way a handful of sand reproduces a
+/// stencil: most of it lands on the dark and is swept away, what is left holds
+/// no edge, and the frame that arrives is a cloud in roughly the right shape. A
+/// tree with thin bright branches came back as a haze, which is exactly the
+/// complaint — a file was opened and nothing recognisable came of it.
+///
+/// So when there is something to draw, the marks stand on one line wound out
+/// from the middle instead of scattered over the disc. Every one of them lands
+/// somewhere the last one did not, the whole disc is covered once, and the
+/// picture is drawn the way an engraving is drawn: by a single line that
+/// thickens where the light is and thins to nothing where it is not. It is also
+/// more of a spiral than the drift ever was, rather than less.
+///
+/// Settled once, like the drift, and for the same reason.
+struct Winding {
+    /// Where each mark stands, as how far out it is and which way round.
+    marks: Vec<(f64, f64)>,
+    /// The largest a mark is drawn, as a radius in frames.
+    ///
+    /// Half the gap between one winding and the next, so a mark standing in the
+    /// full of the light closes on the windings either side of it and the line
+    /// goes solid there, and one standing in half the light leaves paper
+    /// showing. That is the whole of how a tone arrives.
+    grain: f64,
+}
+
+impl Winding {
+    fn new(windings: usize) -> Self {
+        let rim = START + TRAVEL;
+        let ring = rim / windings as f64;
+        // Stepped along the line rather than round the middle: a turn near the
+        // rim is a long way and a turn near the middle is no distance, and
+        // marks laid at an even angle would be a crowd at the middle and a
+        // dotted line at the edge. One ring apart is what leaves them square to
+        // their neighbours — the same gap along the line as across it.
+        let mut marks = Vec::new();
+        let (mut out, mut angle) = (0.0, 0.0);
+        while out < rim {
+            marks.push((out, angle));
+            // Which is an angle of the arc over how far out it is, except at
+            // the very middle, where that is a division by nothing and the line
+            // is a knot however it is walked.
+            let step = ring / out.max(ring);
+            angle += step;
+            out += ring * step / TAU;
+        }
+        Self { marks, grain: ring / 2.0 }
+    }
+}
+
 /// A point of the piece in the frame it is composed in: `x` across, `y` down it,
 /// `z` toward the eye — the plane's own upright, before anything is turned.
 #[derive(Clone, Copy)]
@@ -295,19 +361,19 @@ fn surface(x: f64, y: f64, phase: f64) -> Point {
     }
 }
 
-/// A picture for the crowd to carry, laid flat on the disc.
+/// A picture for the line to draw, laid flat on the disc.
 ///
-/// Read where a particle stands rather than where it set off, so the picture
-/// holds still while the crowd walks out through it. Read the other way it would
-/// be smeared along every ray at once — a picture being dragged apart rather
-/// than one being shown.
+/// Read where a mark stands rather than where the line set off, so the picture
+/// holds still while the line turns through it. Read the other way it would be
+/// smeared round the middle — a picture being dragged apart rather than one being
+/// shown.
 ///
 /// Settled once at the size it will be read at, tones and all. What a frame then
-/// costs is an index and a comparison a particle, whatever was opened.
+/// costs is an index and a comparison a mark, whatever was opened.
 struct Subject {
     /// How much light stands at each pixel, and what colour to draw it in — the
-    /// picture's own where that was asked for, and the crowd's ink where it was
-    /// not, so a particle never has to ask which.
+    /// picture's own where that was asked for, and the line's ink where it was
+    /// not, so a mark never has to ask which.
     light: Vec<f32>,
     tint: Vec<[f32; 3]>,
     wide: usize,
@@ -335,7 +401,7 @@ struct Laying {
     floor: f64,
     tones: Tones,
     colored: bool,
-    /// What the crowd draws in where the picture's own colours are not wanted.
+    /// What a mark is drawn in where the picture's own colours are not wanted.
     ink: [f32; 3],
 }
 
@@ -344,8 +410,8 @@ impl Subject {
         let Laying { spread, fit, open, floor, tones, colored, ink } = laying;
         let (wide, tall) = (picture.width().max(1), picture.height().max(1));
         // In proportion, and only ever smaller: a picture already coarser than
-        // the crowd is at the size the crowd can show, and blowing it up would
-        // spread its own pixels out into squares nothing is asking for.
+        // this is at the size the line can show, and blowing it up would spread
+        // its own pixels out into squares nothing is asking for.
         let scale = (SAMPLE as f64 / wide.max(tall) as f64).min(1.0);
         let read = |side: u32| ((side as f64 * scale).round() as u32).max(1);
         let (wide, tall) = (read(wide), read(tall));
@@ -402,17 +468,17 @@ impl Subject {
             })
             .collect();
 
-        // The disc the drift covers is what the picture is laid over, since the
-        // crowd is what has to carry it: any wider and the corners of it are out
-        // where there is nobody standing.
+        // The disc the line is wound over is what the picture is laid over, since
+        // the line is what has to draw it: any wider and the corners of it are
+        // out past where the winding reaches.
         let disc = (START + TRAVEL) * spread;
         // Which side of the picture is made to span the disc. The long one puts
         // the whole picture inside it and leaves the near and far ends of the
         // disc to nobody — a wide photograph on a round disc reaches a band
         // across the middle and no further. The short one fills the disc and
-        // walks the ends of the picture out past the last particle, where they
-        // are simply never stood on: a crop that costs nothing to make, because
-        // nothing off the disc was ever going to be read.
+        // walks the ends of the picture out past the rim, where they are simply
+        // never stood on: a crop that costs nothing to make, because nothing off
+        // the disc was ever going to be read.
         let side = match fit {
             Fit::Contain => wide.max(tall),
             Fit::Cover => wide.min(tall),
@@ -487,8 +553,16 @@ impl View {
 
 pub struct Spiral {
     particles: Vec<Particle>,
-    /// The picture the crowd is carrying, or nothing and it carries its own ink.
+    /// The picture the marks are drawing, and the line they stand on to draw it.
+    ///
+    /// Both or neither: the line is only ever wound to draw something, and a
+    /// picture with no line under it is one nothing would show. Neither, and the
+    /// disc is the drift it was composed as.
     subject: Option<Subject>,
+    winding: Option<Winding>,
+    /// How closely that line is wound, kept so a picture laid after the fact has
+    /// something to be drawn at.
+    windings: usize,
     mesh: usize,
     view: View,
     /// The lens, narrowed to magnify.
@@ -500,6 +574,16 @@ pub struct Spiral {
 }
 
 impl Spiral {
+    /// Lay a picture on the disc, and wind the line that is going to draw it.
+    ///
+    /// One call rather than two fields set in a row, because a subject without
+    /// its winding is a picture nothing draws and a winding without its subject
+    /// is a coil drawn over nothing. Neither is a state the piece has.
+    fn lay(&mut self, subject: Subject) {
+        self.winding = Some(Winding::new(self.windings));
+        self.subject = Some(subject);
+    }
+
     /// The frame at a phase rather than at a time, which is what the tests and
     /// [`PixelGenerator::frame`] both want and only one of them can say.
     fn picture(&self, width: u32, height: u32, phase: f64) -> RgbaImage {
@@ -525,36 +609,54 @@ impl Spiral {
             }
         }
 
+        match (&self.subject, &self.winding) {
+            (Some(subject), Some(winding)) => self.draw(&mut raster, subject, winding, phase),
+            _ => self.drift(&mut raster, phase),
+        }
+
+        raster.into_image()
+    }
+
+    /// The picture, drawn by the line wound out through it.
+    ///
+    /// The line turns a whole revolution over the period while the picture holds
+    /// still under it, so what moves is the grain and not the subject — and a
+    /// whole turn is the one amount that leaves the line where it found it.
+    fn draw(&self, raster: &mut Raster, subject: &Subject, winding: &Winding, phase: f64) {
+        let turn = TAU * phase;
+        for &(out, angle) in &winding.marks {
+            let angle = angle + turn;
+            let (x, y) = (out * angle.cos(), out * angle.sin());
+            // Where the picture is paper the line is paper: a mark standing off
+            // it, or on the dark of it, is not drawn at all. That is what leaves
+            // a subject reading as a subject rather than as a coil with a
+            // shading on it.
+            let Some((tint, light)) = subject.at(x, y) else {
+                continue;
+            };
+            // The light is taken as the area of the mark rather than as how
+            // strongly it is drawn, which is how every halftone ever printed
+            // reads a tone. Drawn faintly instead, a picture that is lit nearly
+            // everywhere — which is every photograph — leaves every mark
+            // standing and merely greys them, and a greyed line is the line.
+            let mut point = surface(x, y, phase);
+            point.z += RIDE;
+            raster.dot(self.view.sees(point), winding.grain * light.sqrt(), tint, 1.0);
+        }
+    }
+
+    /// The disc with nothing laid on it: the drift, as it was composed.
+    fn drift(&self, raster: &mut Raster, phase: f64) {
         for particle in &self.particles {
             let walked = (phase + particle.offset).rem_euclid(1.0);
             for copy in 0..COPIES {
                 let along = (copy as f64 + walked) / COPIES as f64;
                 let ((x, y), size) = particle.at(along);
-                // Where the picture is paper the crowd is paper: a particle
-                // standing off it, or on the dark of it, is not drawn at all.
-                let (tint, size) = match &self.subject {
-                    // The light it stands in is taken as the area of the mark
-                    // rather than as how strongly the mark is drawn, which is
-                    // how every halftone ever printed reads a tone — and it is
-                    // the difference between a photograph arriving and not. A
-                    // photograph is lit nearly everywhere, so dimming leaves the
-                    // whole crowd standing and merely greys it, and a greyed
-                    // crowd on dark paper is the crowd. Half the light is half a
-                    // mark instead, and the far end of that is a dot too fine to
-                    // draw, which the raster fades out on its own.
-                    Some(subject) => match subject.at(x, y) {
-                        Some((tint, light)) => (tint, size * light.sqrt()),
-                        None => continue,
-                    },
-                    None => (self.ink, size),
-                };
                 let mut point = surface(x, y, phase);
                 point.z += RIDE;
-                raster.dot(self.view.sees(point), size, tint, 1.0);
+                raster.dot(self.view.sees(point), size, self.ink, 1.0);
             }
         }
-
-        raster.into_image()
     }
 }
 
@@ -637,11 +739,13 @@ fn assemble(params: &Params) -> Result<Spiral, String> {
         }
     };
 
-    Ok(Spiral {
+    let mut spiral = Spiral {
         particles: (0..count(params.usize("count", 17_000)?))
             .map(|index| Particle::new(seed, index))
             .collect(),
-        subject,
+        subject: None,
+        winding: None,
+        windings: windings(params.usize("windings", 110)?),
         mesh: mesh(params.usize("mesh", 130)?),
         // The angles it was composed at. The plane is turned about its own
         // upright before it is tipped, so half a right angle of yaw puts a
@@ -655,7 +759,11 @@ fn assemble(params: &Params) -> Result<Spiral, String> {
         paper: tint(colour("paper", export::PAPER)?),
         period: params.period()?,
         still: params.is_set("still"),
-    })
+    };
+    if let Some(subject) = subject {
+        spiral.lay(subject);
+    }
+    Ok(spiral)
 }
 
 pub fn build(params: &Params) -> Result<Generator, String> {
@@ -681,6 +789,11 @@ mod tests {
         // test is not a render.
         params.flags.insert("count".into(), Some("900".into()));
         params.flags.insert("mesh".into(), Some("40".into()));
+        // And a line wound loosely enough to be drawn at this size. These frames
+        // are a tenth of the side a real one is, so the wind a piece is composed
+        // at would put every mark of it inside a pixel and the whole line under
+        // the counts below.
+        params.flags.insert("windings".into(), Some("12".into()));
         for (flag, value) in flags {
             params.flags.insert((*flag).into(), Some((*value).into()));
         }
@@ -778,7 +891,7 @@ mod tests {
     }
 
     #[test]
-    fn the_crowd_and_the_cut_stay_worth_drawing() {
+    fn every_setting_stays_inside_what_is_worth_drawing() {
         assert_eq!(count(0), 200);
         assert_eq!(count(17_000), 17_000);
         assert_eq!(count(1_000_000), 60_000);
@@ -788,6 +901,53 @@ mod tests {
         assert_eq!(spread(0.0), 0.1);
         assert_eq!(spread(1.0), 1.0);
         assert_eq!(spread(90.0), 4.0);
+        assert_eq!(windings(0), 8);
+        assert_eq!(windings(110), 110);
+        assert_eq!(windings(9_999), 200);
+    }
+
+    /// The whole difference between this and the drift it replaced: it is one
+    /// line. Every mark stands within a winding's spacing of the one before it,
+    /// out from the middle to the rim, so what draws the picture is a stroke
+    /// rather than a scatter that happens to have been sorted.
+    #[test]
+    fn every_mark_stands_a_winding_from_the_one_before_it() {
+        let turns = 40;
+        let ring = (START + TRAVEL) / turns as f64;
+        let winding = Winding::new(turns);
+        let at = |(out, angle): (f64, f64)| (out * f64::cos(angle), out * f64::sin(angle));
+
+        let mut last = at(winding.marks[0]);
+        for &mark in &winding.marks[1..] {
+            let (x, y) = at(mark);
+            let step = ((x - last.0).powi(2) + (y - last.1).powi(2)).sqrt();
+            assert!(step < 1.5 * ring, "a mark stood {step} from the last, a ring being {ring}");
+            last = (x, y);
+        }
+    }
+
+    /// And it covers the disc: it starts at the middle and it stops at the rim,
+    /// which is where the plane stops and where a picture is laid out to.
+    #[test]
+    fn the_line_runs_from_the_middle_to_the_rim() {
+        let rim = START + TRAVEL;
+        let winding = Winding::new(40);
+        let (first, last) = (winding.marks[0].0, winding.marks[winding.marks.len() - 1].0);
+        assert!(first < rim / 40.0, "the line set off at {first} rather than at the middle");
+        assert!(last > rim - rim / 40.0, "the line stopped at {last} short of {rim}");
+    }
+
+    /// A mark is drawn at half the gap between one winding and the next, so the
+    /// full of the light closes on the windings either side of it and anything
+    /// less leaves paper showing. Wind the line tighter and every mark of it is
+    /// finer, which is the whole of what the setting does.
+    #[test]
+    fn a_tighter_wind_draws_a_finer_mark() {
+        let loose = Winding::new(20);
+        let tight = Winding::new(40);
+        assert!((loose.grain - (START + TRAVEL) / 40.0).abs() < 1e-12);
+        assert!(tight.grain < loose.grain);
+        assert!(tight.marks.len() > loose.marks.len() * 3);
     }
 
     const LIT: [u8; 4] = [255, 255, 255, 255];
@@ -797,8 +957,8 @@ mod tests {
         RgbaImage::from_fn(32, 32, |x, y| Rgba(shade(x, y)))
     }
 
-    /// The crowd with a picture on it, seen square on so the picture is where
-    /// the plane says it is rather than where the camera has swung it to.
+    /// The disc with a picture on it, seen square on so the picture is where the
+    /// plane says it is rather than where the camera has swung it to.
     fn carrying(picture: &RgbaImage, colored: bool) -> Spiral {
         laid(picture, colored, Fit::Contain)
     }
@@ -806,7 +966,7 @@ mod tests {
     fn laid(picture: &RgbaImage, colored: bool, fit: Fit) -> Spiral {
         let mut spiral = made(&[("yaw", "0"), ("pitch", "0")]);
         let laying = Laying { fit, colored, ..plainly(&spiral) };
-        spiral.subject = Some(Subject::new(picture, laying));
+        spiral.lay(Subject::new(picture, laying));
         spiral
     }
 
@@ -824,11 +984,11 @@ mod tests {
         }
     }
 
-    /// What the crowd is for once it has a picture: it is the picture. A
-    /// particle over paper draws nothing, so paper all through leaves the frame
-    /// with the plane on it and nothing else.
+    /// What the line is for once there is a picture: it is the picture. A mark
+    /// over paper draws nothing, so paper all through leaves the frame with the
+    /// plane on it and nothing else.
     #[test]
-    fn a_subject_of_paper_leaves_the_crowd_nothing_to_show() {
+    fn a_subject_of_paper_leaves_the_line_nothing_to_show() {
         let dark = carrying(&painted(|_, _| UNLIT), false).picture(WIDE, TALL, 0.2);
         assert_eq!(drawn(&dark), 0);
 
@@ -838,19 +998,19 @@ mod tests {
 
     /// And how it shows anything between the two: with the size of the mark,
     /// the way a halftone does. Drawing the mark faintly instead would leave
-    /// the whole crowd standing over a picture that is lit nearly everywhere —
-    /// which is every photograph — and a greyed crowd is the crowd.
+    /// the whole line standing over a picture that is lit nearly everywhere —
+    /// which is every photograph — and a greyed line is the line.
     #[test]
     fn half_the_light_is_half_the_mark_rather_than_half_the_ink() {
         let full = drawn(&carrying(&painted(|_, _| LIT), false).picture(WIDE, TALL, 0.2));
         let half = drawn(&carrying(&painted(|_, _| [128, 128, 128, 255]), false).picture(WIDE, TALL, 0.2));
-        assert!(half > 0, "the crowd went out altogether");
+        assert!(half > 0, "the line went out altogether");
         assert!(half * 4 < full * 3, "{half} lit against {full} in the full of the light");
     }
 
     /// Where the picture stops being a subject and starts being its own paper.
     /// Which is a judgement about the picture rather than about the piece, so it
-    /// moves: an even half-light is a crowd under a low cut and nothing at all
+    /// moves: an even half-light is a drawing under a low cut and nothing at all
     /// under a high one.
     #[test]
     fn the_cut_says_how_faint_the_light_may_get_before_it_is_paper() {
@@ -858,29 +1018,29 @@ mod tests {
         let under = |floor| {
             let mut spiral = made(&[("yaw", "0"), ("pitch", "0")]);
             let laying = Laying { floor, ..plainly(&spiral) };
-            spiral.subject = Some(Subject::new(&half, laying));
+            spiral.lay(Subject::new(&half, laying));
             drawn(&spiral.picture(WIDE, TALL, 0.2))
         };
 
-        assert!(under(0.2) > 0, "the crowd was taken for paper under a cut it stands over");
-        assert_eq!(under(0.7), 0, "the crowd stood on light the cut had taken for paper");
+        assert!(under(0.2) > 0, "the light was taken for paper under a cut it stands over");
+        assert_eq!(under(0.7), 0, "a mark stood on light the cut had taken for paper");
     }
 
     /// A picture whose light never rises far — pale text on a dark field, which
     /// is the commonest thing anybody screenshots — read against its own two
     /// ends rather than against the whole of a range it never reaches.
     ///
-    /// The crowd carries light as the size of a mark, so this is not a matter of
-    /// a picture arriving dim. Read as it stands there is nothing here at all:
+    /// Light is carried as the size of a mark, so this is not a matter of a
+    /// picture arriving dim. Read as it stands there is nothing here at all:
     /// every pixel of the subject is under the paper cut, and the frame comes
-    /// back with the drift on it and no sign a file was ever opened.
+    /// back bare, with no sign a file was ever opened.
     #[test]
     fn a_picture_that_never_gets_bright_is_opened_out_to_its_own_ends() {
         let dim = painted(|across, _| if across < 16 { [8, 8, 8, 255] } else { UNLIT });
         let opened_to = |open| {
             let mut spiral = made(&[("yaw", "0"), ("pitch", "0")]);
             let laying = Laying { open, ..plainly(&spiral) };
-            spiral.subject = Some(Subject::new(&dim, laying));
+            spiral.lay(Subject::new(&dim, laying));
             drawn(&spiral.picture(WIDE, TALL, 0.2))
         };
 
@@ -891,17 +1051,17 @@ mod tests {
     /// A stroke of ink on a page of white — a signature, a logo, a diagram, and
     /// most of what anybody has lying about as a file.
     ///
-    /// Read with the bright end for the subject, the crowd stands full over all
-    /// that paper and thin along the one stroke, which is a frame nobody can
-    /// tell from the drift with nothing under it: the complaint such a picture
-    /// draws is not that it came out wrong but that nothing happened. So the
-    /// stroke is what is carried, and the page is what the crowd walks over.
+    /// Read with the bright end for the subject, the line runs solid over all
+    /// that paper and thins along the one stroke, which is a frame nobody can
+    /// tell from a coil: the complaint such a picture draws is not that it came
+    /// out wrong but that nothing happened. So the stroke is what is drawn, and
+    /// the page is what the line crosses without marking.
     #[test]
     fn a_picture_that_is_mostly_paper_is_read_from_its_ink() {
-        // Off to one side, so which end of the picture the crowd took for the
-        // subject is a question the frame answers by where its marks are. A
-        // count could not: the page and the stroke both leave the crowd thinner
-        // than it was, and only one of them leaves it standing on the stroke.
+        // Off to one side, so which end of the picture was taken for the subject
+        // is a question the frame answers by where its marks are. A count could
+        // not: the page and the stroke both leave fewer marks standing than a
+        // full disc of light, and only one of them leaves them on the stroke.
         let page = painted(|x, _| if (4..12).contains(&x) { UNLIT } else { LIT });
         let frame = carrying(&page, false).picture(WIDE, TALL, 0.2);
 
@@ -914,7 +1074,7 @@ mod tests {
         let middle = lit.iter().sum::<f64>() / lit.len() as f64;
         assert!(
             middle < WIDE as f64 / 2.0,
-            "the crowd stood on the page at {middle} rather than on the ink"
+            "the marks stood on the page at {middle} rather than on the ink"
         );
     }
 
@@ -980,10 +1140,10 @@ mod tests {
         assert!(top.1 < bottom.1, "{} against {}", top.1, bottom.1);
     }
 
-    /// Asked for the picture's colours, the crowd takes them. Left alone it
-    /// keeps its own ink, whatever the picture was painted in.
+    /// Asked for the picture's colours, the marks take them. Left alone they
+    /// keep the piece's own ink, whatever the picture was painted in.
     #[test]
-    fn the_crowd_takes_its_colour_from_the_picture_when_it_is_asked_to() {
+    fn the_marks_take_their_colour_from_the_picture_when_they_are_asked_to() {
         // Pixels the red end of the picture has plainly reached, which the ink
         // is grey enough that nothing it draws can ever be.
         let reddened = |picture: &RgbaImage| {
@@ -998,9 +1158,9 @@ mod tests {
         assert!(reddened(&colored) > 20, "only {} pixels came out red", reddened(&colored));
     }
 
-    /// The picture is carried rather than pulled along: it is read where a
-    /// particle stands, so it is as periodic as the crowd is and the loop it
-    /// closes is the same one.
+    /// The picture holds still rather than being pulled along: it is read where
+    /// a mark stands, and the line turns one whole revolution over the period,
+    /// so the loop it closes is the one the rest of the piece closes.
     #[test]
     fn a_period_leaves_a_carried_picture_where_it_found_it() {
         let checks = painted(|x, y| if (x / 4 + y / 4) % 2 == 0 { LIT } else { UNLIT });
@@ -1022,9 +1182,9 @@ mod tests {
     }
 
     /// A drawing arrives the same way a picture does, and the spread is how much
-    /// of the drift is standing on it.
+    /// of the disc it is laid over.
     #[test]
-    fn a_tighter_spread_lays_the_subject_over_less_of_the_drift() {
+    fn a_tighter_spread_lays_the_subject_over_less_of_the_disc() {
         let whole = drawn(&made(&[("text", BLOCK)]).picture(WIDE, TALL, 0.2));
         let tight = drawn(&made(&[("text", BLOCK), ("spread", "0.4")]).picture(WIDE, TALL, 0.2));
         assert!(tight > 0, "the drawing was lost altogether");
