@@ -374,7 +374,9 @@ of it that stutters when the machine is busy. A single frame is drawn first so a
 tool that takes a while over a whole loop still answers immediately. A loop of
 pictures is rendered smaller and from fewer frames than a loop of text, because
 a frame of it crosses to the window as a hundred kilobytes of PNG rather than as
-a few of text.
+a few of text. Smaller has a floor, though: about the size the pane shows it at
+and no less, since under that the frame is stretched to fill the pane and the
+marks a line is drawn from fall under a pixel and read as a wash.
 
 `ffmpeg` has to be installed for GIF and MP4; PNG and TXT need nothing.
 
