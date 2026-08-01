@@ -1272,6 +1272,12 @@ mod tests {
 
     /// A seed is a promise that the same line can be typed twice, and that
     /// another one is worth typing.
+    ///
+    /// One number for two things: where the crowd stands, and which way the
+    /// surface wanders under it. A picture is drawn by the line rather than by
+    /// the crowd, so with a file open the wandering is the whole of what the
+    /// promise comes to — and the seed has to reach it or the control is a
+    /// control over nothing.
     #[test]
     fn the_same_seed_draws_the_same_frame() {
         let one = made(&[("seed", "7")]).picture(WIDE, TALL, 0.4);
@@ -1280,6 +1286,10 @@ mod tests {
 
         let other = made(&[("seed", "8")]).picture(WIDE, TALL, 0.4);
         assert!(apart(&one, &other) > 0, "the seed changed nothing");
+
+        let laid = |seed: &str| made(&[("text", BLOCK), ("seed", seed)]).picture(WIDE, TALL, 0.4);
+        assert_eq!(apart(&laid("7"), &laid("7")), 0);
+        assert!(apart(&laid("7"), &laid("8")) > 0, "the seed reached nothing under a picture");
     }
 
     /// What the plane is for. It is drawn in the paper's own colour, so the only
