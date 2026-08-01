@@ -378,6 +378,35 @@ async function pickTool(tool: Tool) {
 
 /* Talking to the backend */
 
+/// Whether the window this page is in has the renderer behind it.
+///
+/// The panel is a web page and the drawings are not, so the panel can be served
+/// to a browser and the drawings cannot. Asked outright rather than found out
+/// from the failure, because the failure is a TypeError from inside somebody
+/// else's client, printed where a drawing belongs.
+const RENDERER = "__TAURI_INTERNALS__" in window;
+
+/// What a browser is told instead of a frame.
+const NOTHING_BEHIND = `nothing here is drawing this
+
+every frame on this panel is made in Rust, by the app the panel belongs to,
+and a browser has no app behind it — what is here is the shape of the thing:
+the tools, the controls, the room a drawing goes in
+
+run  bun run tauri dev  for the whole of it`;
+
+/// The backend, or the reason there is not one.
+///
+/// The reason is a string rather than an `Error`, because a string is what a
+/// command that fails rejects with — every catch on this path already prints
+/// one, so the message lands in the pane with nothing else to change. Asked
+/// here rather than once at the start, so that a slider moved an hour later
+/// says the same thing again instead of writing a fresh failure over it.
+async function ask<T>(command: string, args: Record<string, unknown>): Promise<T> {
+  if (!RENDERER) throw NOTHING_BEHIND;
+  return invoke<T>(command, args);
+}
+
 function request(withOutput?: string) {
   const tool = state.tool;
   const here = session();
@@ -424,7 +453,9 @@ function fitPreview() {
   // A picture is fitted by the stylesheet, against the pane it is in rather than
   // against a grid, so none of the type size worked out below is any use to it.
   if (plan.image) return;
-  if (!ready()) {
+  // A sentence, at the size a sentence is read at, rather than a grid's worth of
+  // characters shrunk until the whole grid fits.
+  if (!RENDERER || !ready()) {
     preview.style.fontSize = "12px";
     return;
   }
@@ -480,7 +511,7 @@ async function refreshPlan() {
   const mark = subject;
   let answer: Plan;
   try {
-    answer = await invoke<Plan>("plan", { request: request() });
+    answer = await ask<Plan>("plan", { request: request() });
   } catch {
     answer = {
       period: null,
@@ -549,7 +580,7 @@ async function loadFilm() {
     status.className = "status";
     status.textContent = "drawing…";
   }
-  const call = invoke<Film>("sequence", { request: request() });
+  const call = ask<Film>("sequence", { request: request() });
   pending = call;
   try {
     const frames = await call;
@@ -614,7 +645,7 @@ function show(frame: string, image: boolean) {
 async function showFrame() {
   if (!ready() || pending) return;
   const mark = subject;
-  const call = invoke<string>("preview", { request: request(), time: 0 });
+  const call = ask<string>("preview", { request: request(), time: 0 });
   pending = call;
   try {
     const frame = await call;
@@ -780,7 +811,7 @@ async function render() {
   }, 100);
 
   try {
-    const path = await invoke<string>("render_art", { request: request(target) });
+    const path = await ask<string>("render_art", { request: request(target) });
     status.className = "status done";
     status.textContent = `wrote ${path.split("/").pop()} in ${((Date.now() - started) / 1000).toFixed(1)}s`;
   } catch (error) {
