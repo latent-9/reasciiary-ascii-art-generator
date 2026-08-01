@@ -98,6 +98,23 @@ pub struct Settings {
     /// Pixels per point. Two gives a Retina-sharp frame at a size timelines
     /// still accept.
     pub scale: f64,
+    /// How many renders are averaged into one written frame.
+    ///
+    /// One is a camera that catches an instant and nothing between instants,
+    /// which is what every export has done so far and what the window still
+    /// shows: fast movement lands as a row of sharp copies of itself. More is a
+    /// shutter left open across the frame, so what moved is a smear and what
+    /// stayed is sharp — the difference between a drawing of motion and a
+    /// photograph of it. It costs a whole render each, which is why it belongs
+    /// to a file being written rather than to a preview being scrubbed.
+    pub samples: usize,
+    /// How much of the gap to the next frame that shutter stays open for.
+    ///
+    /// One exposes the whole gap, so the smears meet end to end and the movement
+    /// is continuous. Less leaves a gap and reads as strobing; a little more
+    /// overlaps them, which is softer and is what a real rotary shutter past its
+    /// half turn does.
+    pub shutter: f64,
     /// What the characters are drawn in, and what is behind them.
     ///
     /// The window picks these so an exported file matches the preview it was
@@ -122,6 +139,8 @@ impl Default for Settings {
             frames_per_second: 20,
             duration: 4.0,
             scale: 2.0,
+            samples: 1,
+            shutter: 1.0,
             ink: INK,
             paper: PAPER,
         }

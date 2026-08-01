@@ -63,7 +63,8 @@ pub fn render(pipeline: &Pipeline, settings: &Settings) -> Result<PathBuf, Strin
     match settings.format {
         Format::Text => unreachable!("handled above"),
         Format::Png => {
-            let frame = draw_frame(pipeline, &painter, settings, size, 0.0);
+            let step = frame_step(pipeline, settings);
+            let frame = draw_frame(pipeline, &painter, settings, size, 0.0, step);
             frame
                 .save(&pipeline.output)
                 .map_err(|error| format!("cannot write {}: {error}", pipeline.output.display()))?;
@@ -86,6 +87,7 @@ fn stream(
     size: (u32, u32),
 ) -> Result<(), String> {
     let times = frame_times(pipeline, settings);
+    let step = frame_step(pipeline, settings);
     let output = pipeline.output.to_string_lossy().into_owned();
     let fps = settings.frames_per_second;
 
@@ -110,7 +112,7 @@ fn stream(
     for chunk in times.chunks(batch) {
         let frames: Vec<RgbaImage> = chunk
             .par_iter()
-            .map(|time| draw_frame(pipeline, painter, settings, size, *time))
+            .map(|time| draw_frame(pipeline, painter, settings, size, *time, step))
             .collect();
 
         for frame in frames {
@@ -143,26 +145,75 @@ fn stream(
     ))
 }
 
+/// How much generator time one written frame stands for.
+///
+/// A loop is not sampled at the rate that was asked for: it is stretched or
+/// squeezed so that a whole number of loops lands exactly on the frames there
+/// are — see [`frame_times`] — and the shutter has to be told the same, or a
+/// smear covers something other than the gap it is filling.
+fn frame_step(pipeline: &Pipeline, settings: &Settings) -> f64 {
+    match pipeline.generator.loop_duration() {
+        Some(period) if settings.format.is_animated() => {
+            let span = period * export::whole_loops(period, settings.duration) as f64;
+            span / settings.frame_count() as f64
+        }
+        _ => 1.0 / settings.frames_per_second.max(1) as f64,
+    }
+}
+
 /// Sampling spans a whole number of `loop_duration`s and excludes the endpoint,
 /// which is what makes a periodic generator loop seamlessly without knowing it
 /// is being exported. [`export::whole_loops`] is why it is a whole number rather
 /// than exactly one.
 fn frame_times(pipeline: &Pipeline, settings: &Settings) -> Vec<f64> {
-    let count = settings.frame_count();
-    match pipeline.generator.loop_duration() {
-        Some(period) if settings.format.is_animated() => {
-            let span = period * export::whole_loops(period, settings.duration) as f64;
-            (0..count)
-                .map(|index| index as f64 / count as f64 * span)
-                .collect()
-        }
-        _ => (0..count)
-            .map(|index| index as f64 / settings.frames_per_second as f64)
-            .collect(),
-    }
+    let step = frame_step(pipeline, settings);
+    (0..settings.frame_count())
+        .map(|index| index as f64 * step)
+        .collect()
 }
 
+/// One written frame, exposed over `step` seconds rather than caught at `time`.
+///
+/// The shutter opens at the frame's own time and runs forward, which is the
+/// convention the sketches this follows use and the one that keeps an
+/// unblurred export frame-for-frame identical to a blurred one's first sample.
+///
+/// The samples are averaged as they are stored rather than in light. Averaging
+/// in light is the truer answer for a photograph, but this is ink laid on paper:
+/// a trail averaged in light comes out brighter than either the ink or the paper
+/// it lies between, and a drift of fine particles turns into a glow.
 fn draw_frame(
+    pipeline: &Pipeline,
+    painter: &Painter,
+    settings: &Settings,
+    size: (u32, u32),
+    time: f64,
+    step: f64,
+) -> RgbaImage {
+    let samples = settings.samples.max(1);
+    let mut exposed = one_sample(pipeline, painter, settings, size, time);
+    if samples == 1 {
+        return exposed;
+    }
+
+    let open = step * settings.shutter;
+    let mut total: Vec<u32> = exposed.as_raw().iter().map(|value| *value as u32).collect();
+    for index in 1..samples {
+        let at = time + open * index as f64 / samples as f64;
+        let sample = one_sample(pipeline, painter, settings, size, at);
+        for (sum, value) in total.iter_mut().zip(sample.as_raw()) {
+            *sum += *value as u32;
+        }
+    }
+
+    let half = samples as u32 / 2;
+    for (channel, sum) in exposed.iter_mut().zip(&total) {
+        *channel = ((sum + half) / samples as u32) as u8;
+    }
+    exposed
+}
+
+fn one_sample(
     pipeline: &Pipeline,
     painter: &Painter,
     settings: &Settings,
@@ -198,4 +249,100 @@ fn write_text(pipeline: &Pipeline, settings: &Settings) -> Result<PathBuf, Strin
     std::fs::write(&pipeline.output, canvas.text() + "\n")
         .map_err(|error| format!("cannot write {}: {error}", pipeline.output.display()))?;
     Ok(pipeline.output.clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    use generator::PixelGenerator;
+    use image::Rgba;
+
+    /// A frame that is nothing but its own time, so what an exposure did to a
+    /// span of them can be read straight off a pixel.
+    struct Clock;
+
+    impl PixelGenerator for Clock {
+        fn frame(&self, width: u32, height: u32, time: f64) -> RgbaImage {
+            let shade = (time * 255.0).round().clamp(0.0, 255.0) as u8;
+            RgbaImage::from_pixel(width, height, Rgba([shade, shade, shade, 255]))
+        }
+
+        fn loop_duration(&self) -> Option<f64> {
+            Some(1.0)
+        }
+    }
+
+    fn clock() -> Pipeline {
+        Pipeline {
+            generator: Generator::Pixel(Box::new(Clock)),
+            filters: Vec::new(),
+            output: PathBuf::from("nowhere.png"),
+        }
+    }
+
+    /// The exposure never touches the painter, but the signature carries one.
+    fn painter() -> Painter {
+        let font = fontdue::Font::from_bytes(FONT, fontdue::FontSettings::default())
+            .expect("the bundled font loads");
+        Painter::new(&font, BASE_FONT_SIZE)
+    }
+
+    fn shade(settings: &Settings, time: f64, step: f64) -> u8 {
+        draw_frame(&clock(), &painter(), settings, (2, 2), time, step)
+            .get_pixel(0, 0)
+            .0[0]
+    }
+
+    /// One sample is the frame at that moment and nothing either side of it,
+    /// which is what every export wrote before there was a shutter at all.
+    #[test]
+    fn a_single_sample_catches_the_instant() {
+        let settings = Settings { samples: 1, shutter: 1.0, ..Settings::default() };
+        assert_eq!(shade(&settings, 0.5, 1.0), 128);
+    }
+
+    /// And more than one is their average, spread forward over the gap.
+    #[test]
+    fn an_open_shutter_averages_what_passed_through_it() {
+        let settings = Settings { samples: 4, shutter: 1.0, ..Settings::default() };
+        // Nought, a quarter, a half and three quarters of a second: 0, 64, 128
+        // and 191 as eight-bit shades, which come to 96 rounded.
+        assert_eq!(shade(&settings, 0.0, 1.0), 96);
+    }
+
+    /// A shutter closed the instant it opens is a still camera again, however
+    /// many samples it was asked for.
+    #[test]
+    fn a_shutter_that_never_opens_leaves_the_frame_sharp() {
+        let settings = Settings { samples: 8, shutter: 0.0, ..Settings::default() };
+        assert_eq!(shade(&settings, 0.25, 1.0), 64);
+    }
+
+    /// The smear covers the gap to the next frame, so it has to be measured the
+    /// same way the frames are: a loop squeezed to land on a whole number of
+    /// them steps by something other than one over the rate.
+    #[test]
+    fn the_shutter_is_told_the_step_the_frames_actually_take() {
+        let settings = Settings {
+            format: Format::Gif,
+            frames_per_second: 8,
+            duration: 3.0,
+            ..Settings::default()
+        };
+        // Three seconds of a one second loop is three loops over 24 frames.
+        let times = frame_times(&clock(), &settings);
+        assert_eq!(times.len(), 24);
+        let step = frame_step(&clock(), &settings);
+        assert!((step - 0.125).abs() < 1e-12, "{step}");
+        assert!((times[1] - step).abs() < 1e-12);
+    }
+
+    /// A still is one frame, and the gap it stands for is the one the rate
+    /// names — there being no next frame to reach.
+    #[test]
+    fn a_frame_of_something_that_never_loops_steps_by_the_rate() {
+        let settings = Settings { format: Format::Png, frames_per_second: 25, ..Settings::default() };
+        assert!((frame_step(&clock(), &settings) - 0.04).abs() < 1e-12);
+    }
 }

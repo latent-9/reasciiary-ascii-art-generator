@@ -65,6 +65,11 @@ fn settings_from(params: &Params, format: Format) -> Result<Settings, String> {
         frames_per_second: params.usize("fps", 20)? as u32,
         duration: params.f64("duration", 4.0)?,
         scale: params.f64("scale", 2.0)?,
+        // A hard ceiling on the samples, because this one multiplies the cost of
+        // the whole export: a mistyped figure is not a slow render, it is one
+        // that looks hung. Far more than a handful buys nothing anybody can see.
+        samples: params.usize("samples", 1)?.clamp(1, 64),
+        shutter: params.f64("shutter", 1.0)?.max(0.0),
         ink: colour("ink", export::INK)?,
         paper: colour("paper", export::PAPER)?,
     })
