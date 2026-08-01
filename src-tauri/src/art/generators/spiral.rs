@@ -253,19 +253,21 @@ impl Spiral {
     fn picture(&self, width: u32, height: u32, phase: f64) -> RgbaImage {
         let mut raster = Raster::new(width, height, self.field, near(), self.paper);
 
+        // Four quads meet at every corner of the grid, so a corner worked out
+        // where it is used is worked out four times — and working one out is a
+        // root, an arc and a sine. Settled once each into the grid, and the
+        // quads then read off it.
+        let side = self.mesh + 1;
         let step = 1.0 / self.mesh.max(1) as f64;
-        let corner = |across: usize, down: usize| {
-            let out = |count: usize| count as f64 * step - 0.5;
-            self.view.sees(surface(out(across), out(down), phase))
-        };
+        let out = |count: usize| count as f64 * step - 0.5;
+        let grid: Vec<Seen> = (0..side * side)
+            .map(|at| self.view.sees(surface(out(at % side), out(at / side), phase)))
+            .collect();
+
         for across in 0..self.mesh {
             for down in 0..self.mesh {
-                let patch = [
-                    corner(across, down),
-                    corner(across + 1, down),
-                    corner(across + 1, down + 1),
-                    corner(across, down + 1),
-                ];
+                let at = down * side + across;
+                let patch = [grid[at], grid[at + 1], grid[at + side + 1], grid[at + side]];
                 raster.triangle([patch[0], patch[1], patch[2]], self.paper);
                 raster.triangle([patch[0], patch[2], patch[3]], self.paper);
             }
