@@ -201,9 +201,20 @@ into a half-sphere with the wave still running over whatever shape it has been
 left. What the marks do then is stack against its edge into a bright rim rather
 than spread over its face — a hemisphere is steepest where it meets its own rim
 and level at the top, so an even scatter over it lands unevenly on the frame.
-Below none it is a bowl, the same shape looked into rather than at. What stands
-over the plane is drawn one of two ways, and which one depends on whether a file
-was opened.
+Below none it is a bowl, the same shape looked into rather than at.
+
+A sine says the same thing everywhere, though, and left to itself it draws crests
+all the same height, the same distance apart, each a perfect circle or a perfect
+spiral — which the eye reads as a diagram of a wave rather than as a wave.
+`--churn` is what stops that: a noise field, walked round a circle so it comes
+back where it set off, added to the surface's own height. The crests then wander,
+vary, and stop being circles, and over a loop the whole shape works rather than
+sliding rigidly past. It is the one setting here that does not start where the
+piece was first composed — set low, because the wave is still what the piece is,
+and `--churn 0` is the original exactly.
+
+What stands over the plane is drawn one of two ways, and which one depends on
+whether a file was opened.
 
 With nothing laid on the disc it is a drift: seventeen thousand particles, each
 on its own fixed ray, crawling out from the middle a little above the surface and
@@ -468,10 +479,11 @@ And its own on top:
 | | `--arms` | arms it winds them into; `0` is rings, below it winds back | `1` |
 | | `--swell` | how tall the wave stands; `0` is a flat disc | `0.05` |
 | | `--dome` | how far the disc is lifted; `1` is a half-sphere, below none a bowl | `0` |
+| | `--churn` | how far the surface wanders off the wave; `0` is the plain sine | `0.035` |
 | | `--bare` | the drift on its own, with nothing laid under it | off |
 | | `--count` | particles in the drift | `17000` |
 | | `--mesh` | quads a side the plane is cut into | `130` |
-| | `--seed` | which arrangement of the drift | `7` |
+| | `--seed` | which arrangement of the drift, and which way the surface wanders | `7` |
 
 Anything with a camera takes `--yaw` `--pitch` `--zoom`, and anything that moves
 takes `--still` to hold it. A tool that turns over its loop takes `--turns` on
