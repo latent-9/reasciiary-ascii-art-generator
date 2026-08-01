@@ -126,15 +126,15 @@ const ARMS: f64 = 1.0;
 /// which is where the whole of the argument is.
 const CHURN: f64 = 0.035;
 
-/// How fine the wandering is, in lobes across the frame, and how far round its
+/// How fine the wandering is, in lobes across the plane, and how far round its
 /// own circle the field turns over a loop.
 ///
 /// Not offered. How coarse the wander is, is a fact about the plane carrying it
 /// rather than a thing to want: cut into a hundred and thirty quads a side, the
-/// plane can hold a lobe a twentieth of a frame across and no smaller, and the
-/// second scale in [`Wave::wandered`] is already at that limit. A slider for it
-/// would be a slider that spoils the piece at one end and does nothing at the
-/// other.
+/// plane draws the finer of the two scales in [`Wave::wandered`] with some ten
+/// quads to a lobe, and halving that again is where a lobe starts arriving as a
+/// handful of facets rather than as a curve. A slider for it would be a slider
+/// that spoils the piece at one end and does nothing at the other.
 ///
 /// How far the field turns is the same kind of fact, read off the other end: it
 /// is how much of the wandering happens within one loop rather than sitting
@@ -581,9 +581,10 @@ impl Wave {
     /// Two scales of it, coarse and half as much of one twice as fine. Two and
     /// not one: a single scale of this noise is lobes of about one size, evenly
     /// spread, and a surface made of evenly spread lobes has traded one regular
-    /// thing for another. Two and not four: the third would be finer than the
-    /// plane is cut, and a wander the surface carrying it cannot hold is drawn
-    /// as a shudder rather than as a wander.
+    /// thing for another. Two and not three: a third would come to five quads a
+    /// lobe where the piece is composed and to under two wherever the surface is
+    /// cut loosely, and a wander the surface carrying it cannot hold is drawn as
+    /// a shudder rather than as a wander.
     ///
     /// Read round a circle rather than along a line, which is the whole reason
     /// this can be here at all — see [`circle_noise`]. Noise walked in a
