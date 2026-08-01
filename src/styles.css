@@ -288,6 +288,19 @@ button[hidden] {
   color: var(--object);
 }
 
+/* A picture fits itself. The text pane is sized in type, a cell at a time, and
+   none of that arithmetic means anything to a frame that arrives already drawn
+   — it needs the room there is and the shape it came in, which is what these
+   two lines and `contain` say. */
+#picture {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  /* Otherwise a drag across the pane picks the picture up and carries it, and
+     the camera behind it never sees the movement. */
+  -webkit-user-drag: none;
+}
+
 /* The options belong to whichever tool is chosen, so they are on the trailing
    edge next to the thing they change rather than in a sidebar across the
    window from it. */

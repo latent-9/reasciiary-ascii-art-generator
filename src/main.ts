@@ -42,6 +42,7 @@ const element = <T extends HTMLElement>(id: string) =>
   document.getElementById(id) as T;
 
 const preview = element<HTMLPreElement>("preview");
+const picture = element<HTMLImageElement>("picture");
 const screen = document.querySelector<HTMLDivElement>(".screen")!;
 const status = element("status");
 const hint = element("hint");
@@ -309,15 +310,19 @@ async function pickTool(tool: Tool) {
   showSource();
   updateHint();
   if (!ready()) {
-    film = { frames: [`open a ${tool.source?.label.toLowerCase()} to begin`], fps: 1 };
+    film = {
+      frames: [`open a ${tool.source?.label.toLowerCase()} to begin`],
+      fps: 1,
+      image: false,
+    };
     shown = -1;
     fitPreview();
     return;
   }
   // Nothing of the tool that was on screen a moment ago survives the switch,
-  // however long the new one takes to arrive.
-  film = { frames: [], fps: 1 };
-  preview.textContent = "";
+  // however long the new one takes to arrive — including which pane it was in.
+  film = { frames: [], fps: 1, image: false };
+  show("", false);
   await settle();
 }
 
@@ -342,11 +347,15 @@ function request(withOutput?: string) {
   flags.duration = String(seconds);
   flags.ink = state.object;
   flags.paper = state.theme.paper;
-  if (source.text) flags.text = source.text;
+  // The subject is only offered to the tools that asked for one. A tool that
+  // brings its own would ignore a file anyway, but sending it one means every
+  // frame of it carries a drawing nothing reads across the bridge.
+  const reads = tool.source !== undefined;
+  if (reads && source.text) flags.text = source.text;
 
   return {
     tool: tool.name,
-    positional: source.file && !source.text ? [source.file] : [],
+    positional: reads && source.file && !source.text ? [source.file] : [],
     flags,
     output: withOutput ?? null,
   };
@@ -362,6 +371,9 @@ const cell = (name: "advance" | "line") =>
 
 /// Scales the preview so the whole grid is visible.
 function fitPreview() {
+  // A picture is fitted by the stylesheet, against the pane it is in rather than
+  // against a grid, so none of the type size worked out below is any use to it.
+  if (plan.image) return;
   if (!ready()) {
     preview.style.fontSize = "12px";
     return;
@@ -380,13 +392,18 @@ type Plan = {
   frame: number | null;
   /// Columns and rows the subject was made at, when it was made at any.
   grid: [number, number] | null;
+  /// Whether the tool answers in pictures rather than in characters, which is
+  /// which pane its frames belong in.
+  image: boolean;
 };
 
-/// One whole loop, already rendered.
-type Film = { frames: string[]; fps: number };
+/// One whole loop, already rendered. It carries the same answer the plan gave,
+/// so a film that arrives after the tool was changed cannot be played into the
+/// wrong pane.
+type Film = { frames: string[]; fps: number; image: boolean };
 
-let plan: Plan = { period: null, loops: 1, seconds: 4, frame: null, grid: null };
-let film: Film = { frames: [], fps: 1 };
+let plan: Plan = { period: null, loops: 1, seconds: 4, frame: null, grid: null, image: false };
+let film: Film = { frames: [], fps: 1, image: false };
 let shown = -1;
 
 /// The backend call in flight, if there is one.
@@ -415,7 +432,14 @@ async function refreshPlan() {
   try {
     answer = await invoke<Plan>("plan", { request: request() });
   } catch {
-    answer = { period: null, loops: 1, seconds: number("duration"), frame: null, grid: null };
+    answer = {
+      period: null,
+      loops: 1,
+      seconds: number("duration"),
+      frame: null,
+      grid: null,
+      image: false,
+    };
   }
   if (mark !== subject) return;
   plan = answer;
@@ -484,7 +508,7 @@ async function loadFilm() {
     shown = -1;
   } catch (error) {
     if (mark !== subject) return;
-    film = { frames: [String(error)], fps: 1 };
+    film = { frames: [String(error)], fps: 1, image: false };
     shown = -1;
   } finally {
     pending = null;
@@ -513,9 +537,24 @@ function play(now: number) {
       : Math.floor((now / 1000) * fps) % frames.length;
   if (index === shown) return;
   shown = index;
-  preview.textContent = frames[index];
+  show(frames[index], film.image);
 }
 requestAnimationFrame(play);
+
+/// Puts a frame in whichever of the two panes it belongs in, and takes the other
+/// one off the screen.
+///
+/// One or the other, never both: a picture arrives as a data URL, which laid out
+/// in the text pane is a hundred kilobytes of gibberish, and a text frame set as
+/// a picture's source is a broken-image mark. Every message that has something
+/// to show says which kind it is, so the pane is chosen here rather than guessed
+/// at from the string.
+function show(frame: string, image: boolean) {
+  picture.hidden = !image;
+  preview.hidden = image;
+  if (image) picture.src = frame;
+  else preview.textContent = frame;
+}
 
 /// One frame, now, for while the camera is being dragged.
 ///
@@ -530,10 +569,10 @@ async function showFrame() {
   try {
     const frame = await call;
     if (mark !== subject) return;
-    film = { frames: [frame], fps: 1 };
+    film = { frames: [frame], fps: 1, image: plan.image };
     shown = -1;
   } catch (error) {
-    if (mark === subject) preview.textContent = String(error);
+    if (mark === subject) show(String(error), false);
   } finally {
     pending = null;
   }

@@ -139,11 +139,15 @@ const MOVEMENT: Control[] = [
 /// same question asked without the third dimension — open the file, see what the
 /// glyphs make of it, then lift it. One file, carried between the two.
 ///
-/// The tools that brought their own subject are not in this list. A formula
-/// turning on its own is a fine thing to watch and a poor thing to open an app
-/// on: nothing on screen was asked for, and the one tool somebody came here to
-/// use was three tabs along. They are still in the registry behind the command
-/// line, where a piece is asked for by name.
+/// The spiral brings its own subject, which is the very thing the rest of the
+/// tools that do are kept out of the window for: a formula turning on its own is
+/// a fine thing to watch and a poor thing to open an app on, and the tool
+/// somebody came here to use should not be three tabs along. The app still opens
+/// on the lift and this is one tab from it, so nothing about that has changed.
+/// What earns it the tab is that the piece is composed by eye — the angle it is
+/// seen from and how thick the crowd is are the whole of it — and a command line
+/// answers a question about the angle one rendered file at a time. The others
+/// are still in the registry behind it, where a piece is asked for by name.
 export const TOOLS: Tool[] = [
   {
     name: "ascii",
@@ -196,6 +200,34 @@ export const TOOLS: Tool[] = [
         ],
       },
       READING,
+    ],
+  },
+  {
+    name: "spiral",
+    label: "Spiral",
+    blurb: "A wave winding out from the middle under a drift of particles.",
+    // Turned a corner toward the eye and tipped most of the way over, which is
+    // the pitch that leaves the near swells standing in front of the far ones.
+    // Flat on would be a target and edge on a line.
+    camera: { yaw: 45, pitch: 52, zoom: 1 },
+    groups: [
+      {
+        title: "Drift",
+        controls: [
+          // Enough of them to read as a crowd rather than as specks, and the
+          // ceiling is where a frame stops looking any different for the wait.
+          { kind: "range", flag: "count", label: "Particles", min: 500, max: 40000, step: 500, value: 17000 },
+          // The plane is invisible, so this buys nothing but the accuracy of the
+          // edge the crowd is hidden behind.
+          { kind: "range", flag: "mesh", label: "Surface", min: 32, max: 280, step: 8, value: 130 },
+          // Not a setting so much as another draw of the same piece: it settles
+          // where every particle lies and how large it is, and nothing else.
+          { kind: "range", flag: "seed", label: "Arrangement", min: 1, max: 99, step: 1, value: 7 },
+        ],
+      },
+      // The loop is as long as the export is, so the length in the output group
+      // is the period as well and there is nothing to set here twice.
+      { title: "Motion", controls: [STILL] },
     ],
   },
 ];
