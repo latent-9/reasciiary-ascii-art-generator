@@ -161,14 +161,19 @@ function applyTheme(theme: Theme) {
 
 /// The colour of the drawing itself.
 ///
-/// Nothing is re-rendered for this. The frames are characters and the preview is
-/// text, so the colour lives entirely in a CSS property until an export reads it
-/// — which is why the object can be recoloured while a loop is playing without
-/// so much as a dropped frame.
+/// Nothing is re-rendered for this where the frames are characters: the preview
+/// is text, so the colour lives entirely in a CSS property until an export reads
+/// it — which is why the object can be recoloured while a loop is playing
+/// without so much as a dropped frame.
+///
+/// A tool that draws pixels has already spent the colour by the time the frame
+/// arrives, and no property on the page reaches inside a picture. So that one
+/// pays for the change, and is asked for the loop again.
 function applyObject(colour: string) {
   state.object = colour;
   document.documentElement.style.setProperty("--object", colour);
   element<HTMLInputElement>("tint").value = colour;
+  if (plan.image) invalidate();
 }
 
 function buildThemes() {
