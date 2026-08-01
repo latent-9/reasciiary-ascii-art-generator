@@ -378,11 +378,14 @@ full, then played from memory at the rate that covers it exactly once, so what
 the window shows is the animation an export writes rather than an approximation
 of it that stutters when the machine is busy. A single frame is drawn first so a
 tool that takes a while over a whole loop still answers immediately. A loop of
-pictures is rendered smaller and from fewer frames than a loop of text, because
-a frame of it crosses to the window as a hundred kilobytes of PNG rather than as
-a few of text. Smaller has a floor, though: about the size the pane shows it at
-and no less, since under that the frame is stretched to fill the pane and the
-marks a line is drawn from fall under a pixel and read as a wash.
+pictures is played from fewer frames than a loop of text, because a frame of it
+crosses to the window as hundreds of kilobytes of PNG rather than as a few of
+text. Fewer frames and not smaller ones: every picture the window is shown is
+drawn at the one size, whether it is a still or a frame of a loop, and that size
+is above the pane rather than level with it. A frame fitted down into a pane is
+sharp at whatever the window has been dragged to; one stretched up into it is
+sharp at nothing, and a drawing made of marks a pixel or two across is exactly
+the kind that stretching ruins.
 
 `ffmpeg` has to be installed for GIF and MP4; PNG and TXT need nothing.
 
