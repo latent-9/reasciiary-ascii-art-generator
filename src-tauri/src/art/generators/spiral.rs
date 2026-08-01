@@ -136,6 +136,22 @@ fn floor(given: f64) -> f64 {
 /// into the subject.
 const FLAT: f32 = 1.0 / 64.0;
 
+/// Above this much light on average, a picture is mostly its own paper and it is
+/// the ink that gets carried.
+///
+/// The crowd draws light as the size of a mark, so a picture that is bright
+/// nearly everywhere is a crowd that is full nearly everywhere — a frame nothing
+/// can tell from the drift with no file under it at all. That is not a rare kind
+/// of picture to be handed. A signature, a logo, a diagram, a screenshot of a
+/// page: every one of them is a little ink on a great deal of white, and read
+/// with the bright end for the subject every one of them comes back as the piece
+/// that was already there.
+///
+/// Well above a half, because a picture with tones either side of the middle is
+/// a photograph and turning a photograph over is never what was meant. It takes
+/// a picture that is mostly one bright thing before the tool says so.
+const MOSTLY: f32 = 0.6;
+
 /// How far a picture is opened out to its own two ends before it is read.
 ///
 /// Nought reads the light as it stands. A whole puts the picture's own darkest
@@ -347,15 +363,29 @@ impl Subject {
         let range = brightest - darkest;
         // A picture all one tone has no two ends to be opened out to, and the
         // range is what would be divided by.
-        let open = if range > FLAT { open as f32 } else { 0.0 };
+        let spanned = range > FLAT;
+        let open = if spanned { open as f32 } else { 0.0 };
+        let opened: Vec<f32> = plain
+            .iter()
+            .map(|&plain| match open > 0.0 {
+                true => plain + ((plain - darkest) / range - plain) * open,
+                false => plain,
+            })
+            .collect();
+
+        // Which end of it the subject is on, found rather than assumed — see
+        // [`MOSTLY`]. A picture of one tone is left alone for the same reason it
+        // is left unopened: it has one end, and neither of the two things that
+        // could be said about it is true. `--invert` still has the last word,
+        // since it swaps the ends of whatever was found here.
+        let mean = opened.iter().sum::<f32>() / opened.len().max(1) as f32;
+        let turned = spanned && mean > MOSTLY;
+
         let light = small
             .pixels()
-            .zip(&plain)
-            .map(|(pixel, &plain)| {
-                let level = match open > 0.0 {
-                    true => plain + ((plain - darkest) / range - plain) * open,
-                    false => plain,
-                };
+            .zip(&opened)
+            .map(|(pixel, &level)| {
+                let level = if turned { 1.0 - level } else { level };
                 tones.level(level) * pixel.0[3] as f32 / 255.0
             })
             .collect();
@@ -856,6 +886,36 @@ mod tests {
 
         assert_eq!(opened_to(0.0), 0, "the picture was read as if it had the range it has not");
         assert!(opened_to(1.0) > 100, "only {} pixels were lit", opened_to(1.0));
+    }
+
+    /// A stroke of ink on a page of white — a signature, a logo, a diagram, and
+    /// most of what anybody has lying about as a file.
+    ///
+    /// Read with the bright end for the subject, the crowd stands full over all
+    /// that paper and thin along the one stroke, which is a frame nobody can
+    /// tell from the drift with nothing under it: the complaint such a picture
+    /// draws is not that it came out wrong but that nothing happened. So the
+    /// stroke is what is carried, and the page is what the crowd walks over.
+    #[test]
+    fn a_picture_that_is_mostly_paper_is_read_from_its_ink() {
+        // Off to one side, so which end of the picture the crowd took for the
+        // subject is a question the frame answers by where its marks are. A
+        // count could not: the page and the stroke both leave the crowd thinner
+        // than it was, and only one of them leaves it standing on the stroke.
+        let page = painted(|x, _| if (4..12).contains(&x) { UNLIT } else { LIT });
+        let frame = carrying(&page, false).picture(WIDE, TALL, 0.2);
+
+        let lit: Vec<f64> = frame
+            .enumerate_pixels()
+            .filter(|(_, _, pixel)| pixel.0[0] > 24)
+            .map(|(x, _, _)| x as f64)
+            .collect();
+        assert!(!lit.is_empty(), "the picture was taken for paper all through");
+        let middle = lit.iter().sum::<f64>() / lit.len() as f64;
+        assert!(
+            middle < WIDE as f64 / 2.0,
+            "the crowd stood on the page at {middle} rather than on the ink"
+        );
     }
 
     /// A picture all one tone has no two ends to be opened out to, and opening
