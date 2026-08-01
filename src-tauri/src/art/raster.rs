@@ -126,19 +126,24 @@ impl Raster {
         // held up to the finest size is faded by exactly what it gained.
         let alpha = alpha * (wanted / drawn).powi(2).min(1.0);
 
+        // One pixel of soft edge, which is the whole of the anti-aliasing a dot
+        // this small can carry. Inside the core it is wholly covered and outside
+        // the rim it is not covered at all, so the distance is only worth taking
+        // a root of between the two — which for any dot larger than a speck is a
+        // ring of pixels around a disc of them that never needed one.
+        let (core, rim) = ((drawn - 0.5).max(0.0), drawn + 0.5);
+        let (core, rim2) = (core * core, rim * rim);
+
         let (from_x, to_x) = span(middle.x, drawn, self.width);
         let (from_y, to_y) = span(middle.y, drawn, self.height);
         for y in from_y..to_y {
+            let down = (y as f64 + 0.5 - middle.y).powi(2);
             for x in from_x..to_x {
-                let away = ((x as f64 + 0.5 - middle.x).powi(2)
-                    + (y as f64 + 0.5 - middle.y).powi(2))
-                .sqrt();
-                // One pixel of soft edge, which is the whole of the
-                // anti-aliasing a dot this small can carry.
-                let covered = (drawn + 0.5 - away).clamp(0.0, 1.0) * alpha;
-                if covered <= 0.0 {
+                let away = (x as f64 + 0.5 - middle.x).powi(2) + down;
+                if away >= rim2 {
                     continue;
                 }
+                let covered = if away <= core { alpha } else { (rim - away.sqrt()) * alpha };
                 let at = y * self.width + x;
                 if (middle.nearness as f32) <= self.nearness[at] {
                     continue;
@@ -182,15 +187,26 @@ impl Raster {
             return;
         }
 
+        // The area is divided by at every pixel of the triangle, so it is turned
+        // over once instead. Which side of an edge a pixel falls on is the sign
+        // of a product either way, and that is what the test below reads.
+        let share = 1.0 / area;
+        // The part of each edge that only reads the column, held apart from the
+        // part that only reads the row.
+        let (across_one, across_two) = ((c.y - b.y) * share, (a.y - c.y) * share);
+
         let (from_x, to_x) = bounds([a.x, b.x, c.x], self.width);
         let (from_y, to_y) = bounds([a.y, b.y, c.y], self.height);
         for y in from_y..to_y {
+            let py = y as f64 + 0.5;
+            let (down_one, down_two) =
+                ((c.x - b.x) * (py - b.y) * share, (a.x - c.x) * (py - c.y) * share);
             for x in from_x..to_x {
-                let (px, py) = (x as f64 + 0.5, y as f64 + 0.5);
-                // Barycentric, as parts of the whole — dividing by the area
-                // first is what lets both windings be tested the same way.
-                let one = edge(b, c, px, py) / area;
-                let two = edge(c, a, px, py) / area;
+                let px = x as f64 + 0.5;
+                // Barycentric, as parts of the whole — taking each edge against
+                // the area is what lets both windings be tested the same way.
+                let one = down_one - across_one * (px - b.x);
+                let two = down_two - across_two * (px - c.x);
                 let three = 1.0 - one - two;
                 if one < 0.0 || two < 0.0 || three < 0.0 {
                     continue;
