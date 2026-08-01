@@ -35,29 +35,10 @@ use image::{AnimationDecoder, ImageReader, RgbaImage};
 use crate::art::canvas::{AsciiCanvas, CELL_ASPECT};
 use crate::art::generator::{Generator, GlyphGenerator};
 use crate::art::params::Params;
-use crate::art::read::{fine_size, is_drawing, raster_of, Marks, Reader};
+use crate::art::read::{fine_size, is_drawing, raster_of, Fit, Marks, Reader};
 
 /// How long a frame holds when the file does not say.
 const FRAME_SECONDS: f64 = 0.1;
-
-/// How a picture that is not the shape of the grid is made to fit it.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Fit {
-    /// All of the picture, with the grid left blank around it.
-    Contain,
-    /// All of the grid, with the ends of the picture cut off.
-    Cover,
-}
-
-impl Fit {
-    fn named(name: &str) -> Result<Self, String> {
-        match name {
-            "contain" => Ok(Self::Contain),
-            "cover" => Ok(Self::Cover),
-            other => Err(format!("`{other}` is not a fit — try contain or cover")),
-        }
-    }
-}
 
 /// One frame of the source and how long it holds the screen.
 struct Still {
@@ -331,7 +312,7 @@ fn assemble(params: &Params) -> Result<Media, String> {
         frames,
         drawing,
         span,
-        fit: Fit::named(params.string("fit").unwrap_or("contain"))?,
+        fit: Fit::from_params(params, Fit::Contain)?,
         reader: Reader::from_params(params)?,
         sampled: Mutex::new(None),
     })

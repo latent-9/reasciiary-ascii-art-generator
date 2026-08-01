@@ -72,6 +72,38 @@ impl Marks {
     }
 }
 
+/// How a picture that is not the shape of what it is laid on is made to fit.
+///
+/// Here rather than in the tool that asked first, because the question outlives
+/// the grid it was first asked about: a picture laid on the spiral's disc is the
+/// wrong shape for it in exactly the same way, and one word meaning one thing
+/// across the app is worth more than each tool naming its own.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Fit {
+    /// All of the picture, with what it is laid on left blank around it.
+    Contain,
+    /// All of what it is laid on, with the ends of the picture cut off.
+    Cover,
+}
+
+impl Fit {
+    pub fn named(name: &str) -> Result<Self, String> {
+        match name {
+            "contain" => Ok(Self::Contain),
+            "cover" => Ok(Self::Cover),
+            other => Err(format!("`{other}` is not a fit — try contain or cover")),
+        }
+    }
+
+    /// Read off a line, with the fit a tool falls back to when nothing says.
+    pub fn from_params(params: &Params, fallback: Self) -> Result<Self, String> {
+        match params.string("fit") {
+            Some(name) => Self::named(name),
+            None => Ok(fallback),
+        }
+    }
+}
+
 /// How much light a pixel is taken to carry: which end of the picture is the
 /// subject, and how far the rest are pushed apart.
 ///
