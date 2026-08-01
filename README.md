@@ -355,6 +355,11 @@ Drag the preview to turn a solid, scroll to zoom, double-click to face it again.
 Each tool keeps its own angle, so turning the torus and then coming back to the
 drawing finds it where it was left.
 
+The spiral says those three numbers out loud as well, under View, and the two
+handles move together — drag the disc and the sliders follow it. A view found by
+hand is one worth keeping, and only a number can be written down and asked for
+again a fortnight later.
+
 Three schemes sit in the toolbar, and the swatch beside them recolours the object
 itself to anything — the scheme keeps the paper and the window's own text, so a
 green object on black cannot take the controls with it. Where the frames are
