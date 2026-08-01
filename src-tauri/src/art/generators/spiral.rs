@@ -102,11 +102,12 @@ const GRAIN: f64 = 1.0 / 320.0;
 
 /// The longest side a subject is read down to.
 ///
-/// The crowd is the only thing that draws it, and tens of thousands spread over
-/// the disc stand a couple of hundred apart at best — so anything finer is
-/// detail no particle will ever be standing on. Read down rather than sampled at
-/// a point, which is the difference between a photograph and its own noise.
-const SAMPLE: u32 = 256;
+/// Set by how close together the marks that draw it stand. A line wound two
+/// hundred times over the disc lays them four hundred across it, so a picture
+/// read any coarser than that is one whose detail the line reaches for and does
+/// not find. Read down rather than sampled at a point, which is the difference
+/// between a photograph and its own noise.
+const SAMPLE: u32 = 512;
 
 /// Below this a particle is standing on the picture's own paper and is not
 /// drawn, unless a line says otherwise.
