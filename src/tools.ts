@@ -302,7 +302,7 @@ export const TOOLS: Tool[] = [
           //
           // A dome stands as tall as the disc is wide, so most of the range
           // wants tilting down and pulling back to see — the View sliders are
-          // three rows below, which is why this is worth stepping finely
+          // four rows below, which is why this is worth stepping finely
           // rather than offered as a switch between flat and domed.
           { kind: "range", flag: "dome", label: "Dome", min: -1, max: 1, step: 0.05, value: 0 },
           // The one slider here that does not start where the piece was first
