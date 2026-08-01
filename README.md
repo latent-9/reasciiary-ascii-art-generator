@@ -233,6 +233,27 @@ a file was ever opened. `--contrast` cannot rescue that, and this is why: it
 turns about the middle of the range, so a picture with nothing near the middle is
 one it can only push further down.
 
+Which end of the picture is its subject is then found rather than assumed. A
+picture whose light averages high is mostly its own paper, and it is the ink that
+gets carried. The same arithmetic is behind it: light is the size of a mark, so a
+picture that is bright nearly everywhere is a crowd that is full nearly
+everywhere, which is a frame nothing can tell from the drift with no file under
+it at all. That is not an unusual file to be handed — a signature, a logo, a
+diagram, a screenshot of a page, all of them a little ink on a great deal of
+white. Well above a half before it says so, because a picture with tones either
+side of the middle is a photograph and turning a photograph over is never what
+was meant. `--invert` still has the last word: it swaps the ends of whatever was
+found, so a line that knows which end it wants gets it.
+
+A picture laid on the disc wants a low `--pitch` to be read at. The wave lifts a
+particle by about a third of the disc's own radius, and from any real angle that
+lift drags what the crowd is holding across the frame: tipped far enough over to
+see the swells standing in front of each other, a photograph is a smear and a
+page of writing is nothing. Around 15 the subject survives and there is still a
+surface under it; past 20 or so it is gone. The window's spiral tab opens there
+for that reason, and the drift alone is the finer thing from up around fifty —
+which is a drag away.
+
 With no file at all it is the drift alone, which is how the piece was
 composed and a thing in its own right; `--bare` asks for that with one open,
 because the window always has one.
