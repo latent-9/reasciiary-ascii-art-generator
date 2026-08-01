@@ -55,11 +55,12 @@ use std::f64::consts::{FRAC_PI_3, PI, TAU};
 
 use image::imageops::{resize, FilterType};
 use image::RgbaImage;
+use noise::Perlin;
 
 use crate::art::canvas::{AsciiCanvas, AsciiColor, CELL_ASPECT};
 use crate::art::export;
 use crate::art::generator::{Generator, PixelGenerator};
-use crate::art::motion::scatter;
+use crate::art::motion::{circle_noise, scatter};
 use crate::art::params::Params;
 use crate::art::raster::{Raster, Seen};
 use crate::art::read::{open, plain_light, raster_of, Fit, Source, Tones};
@@ -109,6 +110,36 @@ const SETTLED: f64 = 0.25;
 /// now. See [`Wave`], and [`rings`] and [`arms`] for what either is held to.
 const RINGS: f64 = 8.0;
 const ARMS: f64 = 1.0;
+
+/// How far the surface wanders off the wave, in frames, as it was composed.
+///
+/// The one number in this file that is not the piece as it was first drawn. It
+/// was nought, and what nought gives is a run of crests all the same height, the
+/// same distance apart, each a perfect circle or a perfect spiral — and the eye
+/// reads that as a diagram of a wave rather than as a wave. Every other flag
+/// here changes which diagram it is. This one is what stops it being one.
+///
+/// Set low: the wave is still what the piece is, and this is the amount that
+/// leaves the crests wandering and varying without burying them. See [`churn`],
+/// which is where the whole of the argument is.
+const CHURN: f64 = 0.035;
+
+/// How fine the wandering is, in lobes across the frame, and how far round its
+/// own circle the field turns over a loop.
+///
+/// Not offered. How coarse the wander is, is a fact about the plane carrying it
+/// rather than a thing to want: cut into a hundred and thirty quads a side, the
+/// plane can hold a lobe a twentieth of a frame across and no smaller, and the
+/// second scale in [`Wave::wandered`] is already at that limit. A slider for it
+/// would be a slider that spoils the piece at one end and does nothing at the
+/// other.
+///
+/// How far the field turns is the same kind of fact, read off the other end: it
+/// is how much of the wandering happens within one loop rather than sitting
+/// still under it. Far enough that a crest is somewhere else by the end and near
+/// enough that the surface is not boiling.
+const SCALE: f64 = 6.0;
+const DRIFTING: f64 = 0.6;
 
 /// How far the disc it runs over is lifted into a dome, as it was composed.
 ///
@@ -267,6 +298,37 @@ fn rings(given: f64) -> f64 {
 /// height before that is taken off, not after, so the flag means the same thing
 /// whether or not a file is open.
 fn swell(given: f64) -> f64 {
+    given.clamp(0.0, 4.0 * SWELL)
+}
+
+/// How far the surface wanders off the wave, in frames.
+///
+/// The wave is one sine, and a sine says the same thing everywhere. Every crest
+/// it draws stands the same height as its neighbours, the same distance out from
+/// them, and holds the same shape all the way round — and a crowd lying over
+/// that bunches into a run of hard even bands, because the plane hides the far
+/// slope of each crest and the near edge of every one of them is in the same
+/// place. What arrives is a machined thing. It is the piece's oldest complaint
+/// and it is a fair one: the wave is not being drawn, it is being asserted.
+///
+/// So a field with no account of itself is added to the height. It is not a
+/// second wave — a second wave is a second assertion, and two of them beating
+/// against each other is still a pattern anybody can hear. It is noise, which is
+/// the one thing here that cannot be read off a formula by looking at it. What
+/// it does to the piece is small and is the whole point: the crests still travel
+/// out and still wind into arms, but no two of them are alike, none is a circle,
+/// and the bands come apart into ridges.
+///
+/// None of it is the wave alone, exactly as the piece was first drawn, which is
+/// worth keeping reachable and is not worth opening on. The ceiling is where the
+/// wandering stands as tall as the wave may — see [`swell`] — past which the
+/// piece is a rough surface that a wave is running under rather than a wave with
+/// a roughness on it, and the arms cannot be found in it at all.
+///
+/// A picture laid on the disc settles this the way it settles the swell, and for
+/// the same reason: the lens drags whatever stands on a slope, and a picture
+/// dragged is a picture torn. See [`SETTLED`].
+fn churn(given: f64) -> f64 {
     given.clamp(0.0, 4.0 * SWELL)
 }
 
@@ -464,11 +526,22 @@ struct Point {
 /// has been left. Added rather than switched to, so none of it is the flat disc
 /// the piece was composed on and every other setting means the same thing at any
 /// amount of it. See [`dome`].
+///
+/// The fourth is the one that is not a shape. A delay and a dome are both things
+/// that can be said in a sentence, and a surface with nothing on it but things
+/// that can be said in a sentence is read as a diagram of itself. The last term
+/// is a wandering field with no account of itself at all — see [`churn`] — and
+/// what it is there for is to stop the other three from being the whole story.
 #[derive(Clone, Copy)]
 struct Wave {
     rings: f64,
     arms: f64,
     dome: f64,
+    churn: f64,
+    /// Where the wandering is read from. Carried here rather than worked out per
+    /// call because a field is a table, and building one per point would cost
+    /// more than reading the whole surface does.
+    wander: Perlin,
 }
 
 impl Wave {
@@ -492,8 +565,41 @@ impl Wave {
             y: y * REACH,
             // Mostly under the plane and a little over it, which is what leaves
             // the swells reading as troughs with crests drawn between them.
-            z: self.raised(out) + height * (4.0 * (TAU * (phase - delay)).sin() - 2.0),
+            z: self.raised(out)
+                + self.wandered(x, y, phase)
+                + height * (4.0 * (TAU * (phase - delay)).sin() - 2.0),
         }
+    }
+
+    /// How far the surface has wandered off the wave at this point, in frames.
+    ///
+    /// Two scales of it, coarse and half as much of one twice as fine. Two and
+    /// not one: a single scale of this noise is lobes of about one size, evenly
+    /// spread, and a surface made of evenly spread lobes has traded one regular
+    /// thing for another. Two and not four: the third would be finer than the
+    /// plane is cut, and a wander the surface carrying it cannot hold is drawn
+    /// as a shudder rather than as a wander.
+    ///
+    /// Read round a circle rather than along a line, which is the whole reason
+    /// this can be here at all — see [`circle_noise`]. Noise walked in a
+    /// straight line never comes back, and a piece that does not come back has
+    /// no loop. Walked round a circle it returns exactly, for the price of two
+    /// more coordinates.
+    fn wandered(&self, x: f64, y: f64, phase: f64) -> f64 {
+        if self.churn == 0.0 {
+            return 0.0;
+        }
+        let coarse = circle_noise(&self.wander, x * SCALE, y * SCALE, phase, DRIFTING);
+        // Offset, so the fine scale is a different part of the same field
+        // rather than the coarse one again at another size.
+        let fine = circle_noise(
+            &self.wander,
+            x * 2.0 * SCALE + 31.0,
+            y * 2.0 * SCALE,
+            phase,
+            2.0 * DRIFTING,
+        );
+        self.churn * (coarse + 0.5 * fine) / 1.5
     }
 
     /// How far the disc itself stands above its own rim at this distance out.
@@ -745,6 +851,12 @@ impl Spiral {
         self.winding = Some(Winding::new(self.windings));
         self.subject = Some(subject);
         self.swell *= SETTLED;
+        // The wandering settles with the swell, and for the reason the swell
+        // does: it is another slope for the lens to drag the picture over, and
+        // it is the more damaging of the two because it has no shape a viewer
+        // can allow for. A wave pulls a drawing into rings. Noise pulls it into
+        // nothing that can be named.
+        self.wave.churn *= SETTLED;
     }
 
     /// The frame at a phase rather than at a time, which is what the tests and
@@ -917,6 +1029,11 @@ fn assemble(params: &Params) -> Result<Spiral, String> {
             rings: rings(params.f64("rings", RINGS)?),
             arms: arms(params.f64("arms", ARMS)?),
             dome: dome(params.f64("dome", DOME)?),
+            churn: churn(params.f64("churn", CHURN)?),
+            // The same seed the crowd is settled from, so one number is which
+            // draw of the piece this is — where the particles fell and which
+            // way the surface wanders under them, rather than one of the two.
+            wander: Perlin::new(seed as u32),
         },
         spin: spin(params.f64("spin", SPIN)?),
         mesh: mesh(params.usize("mesh", 130)?),
@@ -973,6 +1090,16 @@ mod tests {
         assemble(&params).expect("the tool builds")
     }
 
+    /// The wave with nothing wandering over it.
+    ///
+    /// What the tests that ask what a delay does are asking about. A wandering
+    /// field has no answer to give about arms or rings and would be sitting in
+    /// the middle of every measurement of them, so it is set aside where the
+    /// question is about the other three. It has tests of its own.
+    fn plain(rings: f64, arms: f64, dome: f64) -> Wave {
+        Wave { rings, arms, dome, churn: 0.0, wander: Perlin::new(7) }
+    }
+
     fn drawn(picture: &RgbaImage) -> usize {
         picture.pixels().filter(|pixel| pixel.0[0] > 24).count()
     }
@@ -1019,7 +1146,7 @@ mod tests {
     #[test]
     fn the_wave_has_no_step_where_the_angle_comes_round() {
         for asked in [-6.0, -1.0, 0.0, ARMS, 3.0, 6.0, 2.4] {
-            let wave = Wave { rings: RINGS, arms: arms(asked), dome: DOME };
+            let wave = plain(RINGS, arms(asked), DOME);
             for phase in [0.0, 0.31, 0.68] {
                 for out in [0.1, 0.4, 0.8] {
                     let above = wave.at(-out, 1e-9, phase, SWELL).z;
@@ -1044,8 +1171,11 @@ mod tests {
             &[("spin", "-2"), ("text", BLOCK)],
             &[("dome", "1")],
             &[("dome", "-1"), ("rings", "0")],
+            &[("churn", "0")],
+            &[("churn", "0.2")],
             &[("arms", "4"), ("rings", "3"), ("spin", "3"), ("text", BLOCK)],
             &[("dome", "0.7"), ("swell", "0.2"), ("spin", "2"), ("text", BLOCK)],
+            &[("dome", "0.6"), ("churn", "0.1"), ("arms", "2"), ("text", BLOCK)],
         ] {
             let spiral = made(shape);
             let start = spiral.picture(WIDE, TALL, 0.0);
@@ -1076,8 +1206,8 @@ mod tests {
         let height = |wave: &Wave, out: f64, angle: f64| {
             wave.at(out * angle.cos(), out * angle.sin(), 0.21, SWELL).z
         };
-        let ringed = Wave { rings: RINGS, arms: 0.0, dome: DOME };
-        let armed = Wave { rings: RINGS, arms: ARMS, dome: DOME };
+        let ringed = plain(RINGS, 0.0, DOME);
+        let armed = plain(RINGS, ARMS, DOME);
         for out in [0.12, 0.3, 0.48] {
             let round = |wave: &Wave| -> Vec<f64> {
                 (1..8)
@@ -1096,7 +1226,7 @@ mod tests {
     #[test]
     fn the_wave_repeats_as_often_as_it_is_asked_to() {
         let crests = |asked: f64| {
-            let wave = Wave { rings: rings(asked), arms: 0.0, dome: DOME };
+            let wave = plain(rings(asked), 0.0, DOME);
             let along: Vec<f64> = (1..96)
                 .map(|step| {
                     let out = step as f64 / 192.0;
@@ -1498,7 +1628,7 @@ mod tests {
     #[test]
     fn a_lifted_disc_is_a_half_sphere_out_to_its_rim_and_nothing_past_it() {
         let rim = START + TRAVEL;
-        let raised = |dome: f64, out: f64| Wave { rings: 0.0, arms: 0.0, dome }.raised(out);
+        let raised = |dome: f64, out: f64| plain(0.0, 0.0, dome).raised(out);
 
         assert_eq!(raised(1.0, 0.0), rim, "the middle of a half-sphere stands a radius up");
         assert_eq!(raised(1.0, rim), 0.0, "the rim of the disc came away from the plane");
@@ -1515,6 +1645,80 @@ mod tests {
         let flat = raised(1.0, 0.0) - raised(1.0, step);
         let sheer = raised(1.0, rim - step) - raised(1.0, rim);
         assert!(sheer > flat * 10.0, "{sheer} at the rim against {flat} at the middle");
+    }
+
+    /// A wave says the same thing all the way round a ring, and the wandering
+    /// says a different thing at every point on it — which is the whole of why it
+    /// is there. What a ring of one height draws is a circle, and a run of them a
+    /// diagram; what a ring that varies draws is a crest that goes somewhere.
+    #[test]
+    fn the_wandering_is_what_stops_a_ring_standing_at_one_height() {
+        // Two points the same distance out, and no arms, so the wave alone has
+        // them at exactly the same height by construction.
+        let out = 0.3;
+        let (here, there) = ((out, 0.0), (out * 0.6, -out * 0.8));
+        let apart = |churn: &str| {
+            let spiral = made(&[("churn", churn), ("arms", "0")]);
+            let at = |(x, y): (f64, f64)| spiral.wave.at(x, y, 0.3, spiral.swell).z;
+            // Taken against how tall the wave itself stands there, so the answer
+            // is a share of the wave rather than a length.
+            (at(here) - at(there)).abs() / (spiral.swell * out.sqrt())
+        };
+        assert!(apart("0") < 1e-12, "the wave alone broke its own ring: {}", apart("0"));
+        assert!(apart("0.05") > 0.1, "the ring stood at one height throughout: {}", apart("0.05"));
+        // And a fair share of the wave rather than a wash over it, at the amount
+        // the piece is composed at.
+        let composed = apart("0.035");
+        assert!(composed > 0.02 && composed < 2.0, "{composed} of the wave's own height");
+    }
+
+    /// Whatever the field is doing, it has to be doing it again by the end — the
+    /// loop is closed by reading the noise round a circle, and the circle is the
+    /// only reason a wandering field can be in a piece that repeats at all.
+    ///
+    /// [`every_shape_the_tool_offers_closes_its_own_loop`] draws this and every
+    /// other setting as whole frames. This says the same thing about the surface
+    /// alone, so a failure names the wandering rather than the render.
+    #[test]
+    fn the_wandering_comes_back_to_where_it_set_off() {
+        let spiral = made(&[("churn", "0.2")]);
+        for (x, y) in [(0.0, 0.0), (0.31, -0.12), (-0.4, 0.4), (0.05, 0.49)] {
+            let start = spiral.wave.wandered(x, y, 0.0);
+            assert!(
+                (start - spiral.wave.wandered(x, y, 1.0)).abs() < 1e-12,
+                "the field was somewhere else at the seam, at ({x}, {y})"
+            );
+            // And it went somewhere in between, or the loop is closed by the
+            // field never having moved.
+            let moved = (0..8)
+                .any(|step| (spiral.wave.wandered(x, y, step as f64 / 8.0) - start).abs() > 1e-6);
+            assert!(moved, "the field stood still all the way round, at ({x}, {y})");
+        }
+    }
+
+    /// Held to a ceiling, and put away entirely at nought — which is the piece
+    /// as it was first drawn and the one setting where the surface is only the
+    /// three things that can be said in a sentence.
+    #[test]
+    fn the_wandering_is_held_and_can_be_put_away() {
+        assert_eq!(churn(0.0), 0.0);
+        assert_eq!(churn(-1.0), 0.0, "a surface cannot wander backwards");
+        assert_eq!(churn(99.0), 4.0 * SWELL, "the wandering was let past the wave's own ceiling");
+        let flat = made(&[("churn", "0")]);
+        for (x, y) in [(0.0, 0.0), (0.2, 0.37), (-0.45, 0.1)] {
+            assert_eq!(flat.wave.wandered(x, y, 0.4), 0.0, "nought still wandered at ({x}, {y})");
+        }
+    }
+
+    /// A picture is drawn on a settled surface, and the wandering settles with
+    /// the swell — the lens drags whatever stands on a slope, and this is the
+    /// slope a viewer has no shape to allow for.
+    #[test]
+    fn a_picture_settles_the_wandering_as_well_as_the_wave() {
+        let bare = made(&[("churn", "0.1")]).wave.churn;
+        let under = made(&[("churn", "0.1"), ("text", BLOCK)]).wave.churn;
+        assert!(under < bare, "{under} against {bare} with nothing laid on the disc");
+        assert!(under > 0.0, "a laid picture left the surface with no wander at all");
     }
 
     /// The wave still runs over whatever the disc has been bent into, so lifting
@@ -1534,7 +1738,7 @@ mod tests {
 
     /// How tall the wave stands is asked for, and the settling a picture does is
     /// taken off whatever was asked — so the flag means the same thing with a
-    /// file open as without one, and none of it is a flat disc.
+    /// file open as without one, and none of it leaves the wave standing.
     #[test]
     fn a_wave_stands_as_tall_as_it_is_asked_to() {
         let swing = |spiral: &Spiral| {
@@ -1547,7 +1751,11 @@ mod tests {
         let composed = swing(&made(&[]));
         let taller = swing(&made(&[("swell", "0.2")]));
         assert!(taller > composed * 3.0, "{taller} against {composed}");
-        assert_eq!(swing(&made(&[("swell", "0")])), 0.0);
+        // Nothing left of the wave, which is a flat disc only if the wandering
+        // is put away with it — the two are separate heights and either can
+        // stand without the other.
+        assert_eq!(swing(&made(&[("swell", "0"), ("churn", "0")])), 0.0);
+        assert!(swing(&made(&[("swell", "0")])) > 0.0, "the wandering went with the wave");
         // Held to the same ceiling from either side of a picture being laid.
         let settled = swing(&made(&[("swell", "99"), ("text", BLOCK)]));
         let unsettled = swing(&made(&[("swell", "99")]));
