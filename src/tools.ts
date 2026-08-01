@@ -306,15 +306,15 @@ export const TOOLS: Tool[] = [
           // rather than offered as a switch between flat and domed.
           { kind: "range", flag: "dome", label: "Dome", min: -1, max: 1, step: 0.05, value: 0 },
           // The one slider here that does not start where the piece was first
-          // composed. A sine says the same thing everywhere, so left at none
-          // the crests come out the same height, the same distance apart, and
-          // each a perfect circle — a diagram of a wave rather than a wave.
-          // Every other control on this row changes which diagram it is; this
-          // is the one that stops it being one, and it is set low because the
-          // wave is still what the piece is.
+          // composed. A sine says the same thing everywhere, so left at none the
+          // crests come out evenly spaced, level the whole way round, and each
+          // an exact copy of the one inside it — a diagram of a wave rather than
+          // a wave. Every other control on this row changes which diagram it is;
+          // this is the one that stops it being one, and it is set low because
+          // the wave is still what the piece is.
           //
-          // The same ceiling the Swell has, that being the point past which the
-          // surface is wandering further than the wave it is wandering off.
+          // The same ceiling the Swell has, that being where the surface wanders
+          // about as far as the wave stands tall at the height it opens on.
           { kind: "range", flag: "churn", label: "Wander", min: 0, max: 0.2, step: 0.005, value: 0.035 },
         ],
       },
