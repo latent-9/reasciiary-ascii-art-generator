@@ -17,8 +17,18 @@
 //! question about distance — the same question the depth test is already asking.
 //! Answered anywhere else it becomes a fudge factor, which is what it is in the
 //! sketches this follows.
+//!
+//! A mark is written down where it is made and drawn later, in bands. The
+//! exporter already spreads frames across the cores, so a written file was never
+//! the problem; a preview is one frame, and one frame drawn on one thread is
+//! what the window waits on between a drag and a picture. Split by rows there is
+//! nothing to share and nothing to lock — a band owns its own pixels outright —
+//! and because a band draws the marks that reach it in the order they were made,
+//! the picture is the picture that would have been drawn in one pass. The cost
+//! of that is holding a frame's marks in memory until it is asked for.
 
-use image::{Rgba, RgbaImage};
+use image::RgbaImage;
+use rayon::prelude::*;
 
 use super::generators::ascii::Vector3;
 
@@ -30,6 +40,15 @@ use super::generators::ascii::Vector3;
 /// bargain [`crate::art::generators::paper`] strikes for a hairline, and the
 /// reason a drift of far-off particles fades out instead of sparkling.
 const FINEST_DOT: f64 = 0.4;
+
+/// How many rows of the picture one band holds.
+///
+/// Small enough that a picture is cut into more bands than the machine has cores
+/// to draw them with. The work is nowhere near even — a band with the horizon
+/// across it is a hundred times the band above it, which is empty sky — so the
+/// way to keep every core busy to the end is to leave spare bands for whichever
+/// core finishes first to take.
+const BAND: usize = 32;
 
 /// A point of the world as the eye sees it: `x` across the picture, `y` up it,
 /// and `z` how far off it is.
@@ -48,6 +67,13 @@ struct Plotted {
     nearness: f64,
 }
 
+/// A mark as it will be drawn: on the picture, sized, and waiting for a band.
+#[derive(Clone, Copy)]
+enum Mark {
+    Face { corners: [Plotted; 3], tint: [f32; 3] },
+    Dot { middle: Plotted, drawn: f64, tint: [f32; 3], alpha: f64 },
+}
+
 pub struct Raster {
     width: usize,
     height: usize,
@@ -56,9 +82,13 @@ pub struct Raster {
     focal: f64,
     /// How near the eye a point may come before it is cut away, in world units.
     near: f64,
-    color: Vec<[f32; 3]>,
-    /// Inverse distance, so nought is infinitely far and larger is nearer.
-    nearness: Vec<f32>,
+    paper: [f32; 3],
+    /// Every mark of the frame, in the order it was made.
+    marks: Vec<Mark>,
+    /// Which of those reach each band, as places in `marks`. A mark lying across
+    /// a seam is in both bands, and an index is only ever added after the ones
+    /// before it, so a band draws in the order the frame was drawn in.
+    bands: Vec<Vec<u32>>,
 }
 
 impl Raster {
@@ -86,8 +116,9 @@ impl Raster {
             height,
             focal,
             near: near.max(f64::MIN_POSITIVE),
-            color: vec![paper; width * height],
-            nearness: vec![0.0; width * height],
+            paper,
+            marks: Vec::new(),
+            bands: vec![Vec::new(); height.div_ceil(BAND)],
         }
     }
 
@@ -106,8 +137,9 @@ impl Raster {
         // off its first corner covers it.
         for step in 1..kept.len().saturating_sub(1) {
             let fan = [kept[0], kept[step], kept[step + 1]];
-            let plotted = fan.map(|corner| self.plot(corner));
-            self.fill(plotted, tint);
+            let corners = fan.map(|corner| self.plot(corner));
+            let rows = bounds(corners.map(|corner| corner.y), self.height);
+            self.record(Mark::Face { corners, tint }, rows);
         }
     }
 
@@ -126,48 +158,63 @@ impl Raster {
         // held up to the finest size is faded by exactly what it gained.
         let alpha = alpha * (wanted / drawn).powi(2).min(1.0);
 
-        // One pixel of soft edge, which is the whole of the anti-aliasing a dot
-        // this small can carry. Inside the core it is wholly covered and outside
-        // the rim it is not covered at all, so the distance is only worth taking
-        // a root of between the two — which for any dot larger than a speck is a
-        // ring of pixels around a disc of them that never needed one.
-        let (core, rim) = ((drawn - 0.5).max(0.0), drawn + 0.5);
-        let (core, rim2) = (core * core, rim * rim);
+        let rows = span(middle.y, drawn, self.height);
+        self.record(Mark::Dot { middle, drawn, tint, alpha }, rows);
+    }
 
-        let (from_x, to_x) = span(middle.x, drawn, self.width);
-        let (from_y, to_y) = span(middle.y, drawn, self.height);
-        for y in from_y..to_y {
-            let down = (y as f64 + 0.5 - middle.y).powi(2);
-            for x in from_x..to_x {
-                let away = (x as f64 + 0.5 - middle.x).powi(2) + down;
-                if away >= rim2 {
-                    continue;
-                }
-                let covered = if away <= core { alpha } else { (rim - away.sqrt()) * alpha };
-                let at = y * self.width + x;
-                if (middle.nearness as f32) <= self.nearness[at] {
-                    continue;
-                }
-                let covered = covered as f32;
-                for (channel, ink) in self.color[at].iter_mut().zip(tint) {
-                    *channel = *channel * (1.0 - covered) + ink * covered;
-                }
-                // Only the solid middle of a dot stands in front of anything.
-                // Letting its soft rim write depth would have every dot punch a
-                // hole a pixel wider than itself through the dots behind it.
-                if covered >= 0.5 {
-                    self.nearness[at] = middle.nearness as f32;
-                }
-            }
+    /// Keeps a mark, and tells every band it reaches to expect it.
+    fn record(&mut self, mark: Mark, (from, to): (usize, usize)) {
+        if from >= to {
+            return;
+        }
+        let at = self.marks.len() as u32;
+        self.marks.push(mark);
+        for band in &mut self.bands[from / BAND..=(to - 1) / BAND] {
+            band.push(at);
         }
     }
 
+    /// Draws every mark that was kept, a band of rows at a time.
+    ///
+    /// A band draws into paper of its own and lays that down as bytes when it is
+    /// finished, so the whole picture is never held twice: what a band works in
+    /// is a few hundred kilobytes it has to itself, and what it leaves behind is
+    /// the image.
     pub fn into_image(self) -> RgbaImage {
         let mut image = RgbaImage::new(self.width as u32, self.height as u32);
-        for (pixel, color) in image.pixels_mut().zip(&self.color) {
-            let channel = |value: f32| (value.clamp(0.0, 1.0) * 255.0).round() as u8;
-            *pixel = Rgba([channel(color[0]), channel(color[1]), channel(color[2]), 255]);
-        }
+        image
+            .par_chunks_mut(BAND * self.width * 4)
+            .zip(&self.bands)
+            .enumerate()
+            .for_each(|(index, (pixels, marks))| {
+                let held = pixels.len() / 4;
+                let mut band = Band {
+                    width: self.width,
+                    from: index * BAND,
+                    color: vec![self.paper; held],
+                    // Inverse distance, so nought is infinitely far and larger
+                    // is nearer.
+                    nearness: vec![0.0; held],
+                };
+                for at in marks {
+                    match self.marks[*at as usize] {
+                        Mark::Face { corners, tint } => band.fill(corners, tint),
+                        Mark::Dot { middle, drawn, tint, alpha } => {
+                            band.dot(middle, drawn, tint, alpha)
+                        }
+                    }
+                }
+
+                let channel = |value: f32| (value.clamp(0.0, 1.0) * 255.0).round() as u8;
+                for (pixel, color) in pixels.chunks_exact_mut(4).zip(&band.color) {
+                    pixel.copy_from_slice(&[
+                        channel(color[0]),
+                        channel(color[1]),
+                        channel(color[2]),
+                        255,
+                    ]);
+                }
+            });
         image
     }
 
@@ -178,6 +225,25 @@ impl Raster {
             y: self.height as f64 / 2.0 - point.y * self.focal * nearness,
             nearness,
         }
+    }
+
+}
+
+/// The rows of a picture one thread draws into, and nothing else — no other
+/// band holds a pixel of them, which is what makes the drawing below safe to do
+/// on all of them at once.
+struct Band {
+    width: usize,
+    /// The row of the picture this band starts at.
+    from: usize,
+    color: Vec<[f32; 3]>,
+    nearness: Vec<f32>,
+}
+
+impl Band {
+    /// The row after the last one this band holds.
+    fn until(&self) -> usize {
+        self.from + self.color.len() / self.width
     }
 
     fn fill(&mut self, corners: [Plotted; 3], tint: [f32; 3]) {
@@ -196,11 +262,12 @@ impl Raster {
         let (across_one, across_two) = ((c.y - b.y) * share, (a.y - c.y) * share);
 
         let (from_x, to_x) = bounds([a.x, b.x, c.x], self.width);
-        let (from_y, to_y) = bounds([a.y, b.y, c.y], self.height);
-        for y in from_y..to_y {
+        let (from_y, to_y) = bounds([a.y, b.y, c.y], self.until());
+        for y in from_y.max(self.from)..to_y {
             let py = y as f64 + 0.5;
             let (down_one, down_two) =
                 ((c.x - b.x) * (py - b.y) * share, (a.x - c.x) * (py - c.y) * share);
+            let row = (y - self.from) * self.width;
             for x in from_x..to_x {
                 let px = x as f64 + 0.5;
                 // Barycentric, as parts of the whole — taking each edge against
@@ -214,12 +281,52 @@ impl Raster {
 
                 let nearness =
                     (one * a.nearness + two * b.nearness + three * c.nearness) as f32;
-                let at = y * self.width + x;
+                let at = row + x;
                 if nearness <= self.nearness[at] {
                     continue;
                 }
                 self.nearness[at] = nearness;
                 self.color[at] = tint;
+            }
+        }
+    }
+
+    fn dot(&mut self, middle: Plotted, drawn: f64, tint: [f32; 3], alpha: f64) {
+        // One pixel of soft edge, which is the whole of the anti-aliasing a dot
+        // this small can carry. Inside the core it is wholly covered and outside
+        // the rim it is not covered at all, so the distance is only worth taking
+        // a root of between the two — which for any dot larger than a speck is a
+        // ring of pixels around a disc of them that never needed one.
+        let (core, rim) = ((drawn - 0.5).max(0.0), drawn + 0.5);
+        let (inside, outside) = (core * core, rim * rim);
+
+        let nearness = middle.nearness as f32;
+        let (from_x, to_x) = span(middle.x, drawn, self.width);
+        let (from_y, to_y) = span(middle.y, drawn, self.until());
+        for y in from_y.max(self.from)..to_y {
+            let down = (y as f64 + 0.5 - middle.y).powi(2);
+            let row = (y - self.from) * self.width;
+            for x in from_x..to_x {
+                let away = (x as f64 + 0.5 - middle.x).powi(2) + down;
+                if away >= outside {
+                    continue;
+                }
+                let at = row + x;
+                if nearness <= self.nearness[at] {
+                    continue;
+                }
+                let covered = if away <= inside { alpha } else { (rim - away.sqrt()) * alpha };
+                let covered = covered as f32;
+                let color = &mut self.color[at];
+                for (channel, ink) in color.iter_mut().zip(tint) {
+                    *channel = *channel * (1.0 - covered) + ink * covered;
+                }
+                // Only the solid middle of a dot stands in front of anything.
+                // Letting its soft rim write depth would have every dot punch a
+                // hole a pixel wider than itself through the dots behind it.
+                if covered >= 0.5 {
+                    self.nearness[at] = nearness;
+                }
             }
         }
     }
@@ -235,23 +342,27 @@ fn edge(from: Plotted, to: Plotted, x: f64, y: f64) -> f64 {
 fn bounds(across: [f64; 3], limit: usize) -> (usize, usize) {
     let low = across.iter().copied().fold(f64::INFINITY, f64::min);
     let high = across.iter().copied().fold(f64::NEG_INFINITY, f64::max);
-    if !low.is_finite() || !high.is_finite() {
-        return (0, 0);
-    }
-    (
-        low.floor().max(0.0) as usize,
-        (high.ceil().max(0.0) as usize + 1).min(limit),
-    )
+    reach(low, high, limit)
 }
 
 /// The same for a dot, which knows its own reach.
 fn span(middle: f64, radius: f64, limit: usize) -> (usize, usize) {
-    if !middle.is_finite() {
+    reach(middle - radius - 1.0, middle + radius + 1.0, limit)
+}
+
+/// A stretch of the picture, as whole pixels, or nothing at all.
+///
+/// Nothing rather than the nearest pixel to it: a mark away off the side of the
+/// picture would otherwise be handed the first column and drawn against it, row
+/// after row, for a triangle that was never going to land.
+fn reach(low: f64, high: f64, limit: usize) -> (usize, usize) {
+    let edge = limit as f64;
+    if !low.is_finite() || !high.is_finite() || high < 0.0 || low >= edge {
         return (0, 0);
     }
     (
-        (middle - radius - 1.0).floor().max(0.0) as usize,
-        ((middle + radius + 1.0).ceil().max(0.0) as usize + 1).min(limit),
+        low.floor().max(0.0) as usize,
+        (high.ceil().clamp(0.0, edge) as usize + 1).min(limit),
     )
 }
 
@@ -402,6 +513,25 @@ mod tests {
         let at = |x: f64, y: f64| Vector3::new(x, y, -100.0);
         raster.triangle([at(-50.0, -50.0), at(50.0, -50.0), at(0.0, 50.0)], WHITE);
         assert!(raster.into_image().pixels().all(|pixel| pixel.0[0] == 0));
+    }
+
+    /// A mark lying across the seam between two bands is one mark, drawn whole
+    /// by the two threads that hold its halves.
+    #[test]
+    fn a_dot_across_a_seam_comes_out_in_one_piece() {
+        let side = BAND as u32 * 2;
+        let mut raster = Raster::new(side, side, FIELD, NEAR, BLACK);
+        // Level with the eye, so it lands on the middle row — which is where one
+        // band ends and the next begins.
+        raster.dot(Vector3::new(0.0, 0.0, 20.0), 2.0, WHITE, 1.0);
+
+        let image = raster.into_image();
+        let lit = |y: u32| (0..side).filter(|x| image.get_pixel(*x, y).0[0] > 0).count();
+        let (above, below) = (lit(BAND as u32 - 1), lit(BAND as u32));
+        assert!(above > 0, "nothing was drawn above the seam");
+        // The two rows either side of the seam are the same distance from the
+        // middle of the dot, so they carry the same width of it.
+        assert_eq!(above, below);
     }
 
     /// Marks off the edge of the picture cost nothing and reach nothing.
