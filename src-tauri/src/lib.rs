@@ -79,7 +79,7 @@ fn settings_from(params: &Params, format: Format) -> Result<Settings, String> {
     })
 }
 
-/// The longest a still preview is drawn, in pixels.
+/// The longest a preview is drawn, in pixels.
 ///
 /// Not the size the file gets. A tool that draws pixels is asked for a picture,
 /// and the picture an export writes is millions of them — encoded and spelled
@@ -87,27 +87,30 @@ fn settings_from(params: &Params, format: Format) -> Result<Settings, String> {
 /// for a JSON message, to be scaled straight back down into a pane a fraction of
 /// the size. What the window is being shown is the framing and the movement, and
 /// both survive the reduction.
-const PREVIEW_EDGE: u32 = 720;
-
-/// The same for one frame of a played loop, which there are up to
-/// [`PICTURE_FRAMES`] of and which pays that cost once each.
 ///
-/// Near what a pane shows a picture at, rather than as small as a loop can be
-/// sent at, because well under it two things go. A drag is answered with a
-/// still drawn at [`PREVIEW_EDGE`], so the picture shrank the moment the loop
-/// replaced it; and the marks a line is drawn from fall under the floor the
-/// raster holds a dot at — the spiral's, at a hundred windings, is 0.0023 of a
-/// frame, which at 360 pixels was under half a pixel for the darker half of the
-/// range and came back as a wash. Not [`PREVIEW_EDGE`] itself: ninety of these
-/// cross the bridge as text in one message, which at this size already runs to
-/// tens of megabytes.
-const FILM_EDGE: u32 = 480;
+/// One number for a still and for a frame of a loop, though a still is drawn one
+/// at a time and a loop is drawn [`PICTURE_FRAMES`] at once. A loop had its own,
+/// smaller, on the reasoning that what is sent ninety times over should be sent
+/// cheaply — and what that bought was a preview that changed the moment it
+/// stopped being dragged. The pane is larger than the cheaper frame, so the loop
+/// was stretched into it while the still was fitted down into it, and stretching
+/// a drawing made of marks a pixel or two across is how those marks stop being
+/// marks. Two sizes for one pane is a difference the eye reads as the picture
+/// getting worse when you let go of it.
+///
+/// Above the pane rather than level with it, which is the same reasoning: a pane
+/// is whatever the window has been dragged to, and a frame fitted down into one
+/// is sharp at every size while a frame stretched up into one is sharp at none.
+/// The room this leaves costs about half a second on a whole loop.
+const PREVIEW_EDGE: u32 = 720;
 
 /// How many frames a loop of pictures is played from.
 ///
 /// Fewer than a loop of text gets. Text is a few kilobytes a frame and a picture
-/// is a hundred, so the same count is a hundredfold the message; and a preview
-/// that arrives late is worse than one a little less smooth.
+/// is some hundreds, so the same count is a hundredfold the message; and a
+/// preview that arrives late is worse than one a little less smooth. This is
+/// where a loop is held down, now that [`PREVIEW_EDGE`] is not: how many frames
+/// there are is something the eye forgives, and how sharp each one is is not.
 const PICTURE_FRAMES: usize = 90;
 
 /// The pixel size a grid of cells stands for, held inside `edge` on its long
@@ -288,12 +291,11 @@ async fn sequence(request: Request) -> Result<Film, String> {
         let rows = params.usize("rows", 48)?;
         let requested = params.usize("fps", 20)?.max(1) as f64;
         let image = matches!(generator, Generator::Pixel(_));
-        let edge = FILM_EDGE;
 
         let Some(period) = generator.loop_duration().filter(|period| *period > 0.0) else {
             // A still is a one-frame film. Playing it costs the window nothing,
             // so it does not need a second path through any of this.
-            let frame = draw(&generator, columns, rows, edge, 0.0)?;
+            let frame = draw(&generator, columns, rows, PREVIEW_EDGE, 0.0)?;
             return Ok(Film { frames: vec![frame], fps: 1.0, image });
         };
 
@@ -304,7 +306,9 @@ async fn sequence(request: Request) -> Result<Film, String> {
         let count = ((period * requested).round() as usize).clamp(24, most);
         let frames = (0..count)
             .into_par_iter()
-            .map(|index| draw(&generator, columns, rows, edge, period * index as f64 / count as f64))
+            .map(|index| {
+                draw(&generator, columns, rows, PREVIEW_EDGE, period * index as f64 / count as f64)
+            })
             .collect::<Result<Vec<_>, String>>()?;
 
         Ok(Film { frames, fps: count as f64 / period, image })
