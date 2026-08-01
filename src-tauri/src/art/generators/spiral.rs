@@ -471,17 +471,25 @@ fn assemble(params: &Params) -> Result<Spiral, String> {
     // without one the drift is drawn in its own ink, as it always was.
     let laid = |picture: &RgbaImage| Subject::new(picture, over, tones, colored, ink);
     let written = |text: &str| laid(&raster_of(&AsciiCanvas::from_text(text)));
-    let subject = match params.string("text") {
-        // `--text` carries a drawing inline, which is how the window offers a
-        // sample without a file whose path differs between dev and a bundle.
-        Some(inline) => Some(written(inline)),
-        None => match params.first_positional() {
-            Some(path) => Some(match &*open(path)? {
-                Source::Drawing(text) => written(text),
-                Source::Picture(picture) => laid(picture),
-            }),
-            None => None,
-        },
+    // On a command line, no subject is a line with no file on it. The window has
+    // no such line — it carries one file between all of its tools and hands it to
+    // whichever is showing — so `--bare` is how it says the same thing.
+    let subject = if params.is_set("bare") {
+        None
+    } else {
+        match params.string("text") {
+            // `--text` carries a drawing inline, which is how the window offers
+            // a sample without a file whose path differs between dev and a
+            // bundle.
+            Some(inline) => Some(written(inline)),
+            None => match params.first_positional() {
+                Some(path) => Some(match &*open(path)? {
+                    Source::Drawing(text) => written(text),
+                    Source::Picture(picture) => laid(picture),
+                }),
+                None => None,
+            },
+        }
     };
 
     Ok(Spiral {
@@ -722,6 +730,17 @@ mod tests {
         let start = spiral.picture(WIDE, TALL, 0.0);
         let round = spiral.picture(WIDE, TALL, 1.0);
         assert_eq!(apart(&start, &round), 0);
+    }
+
+    /// The drift on its own, with a subject open and to hand. The window always
+    /// has one, so without this there would be no way from in there to ask for
+    /// the piece as it was composed.
+    #[test]
+    fn the_drift_can_be_asked_for_on_its_own() {
+        let carried = made(&[("text", BLOCK)]).picture(WIDE, TALL, 0.2);
+        let bare = made(&[("text", BLOCK), ("bare", "")]).picture(WIDE, TALL, 0.2);
+        assert_eq!(apart(&bare, &made(&[]).picture(WIDE, TALL, 0.2)), 0);
+        assert!(apart(&bare, &carried) > 0, "the drawing was never laid down");
     }
 
     /// A drawing arrives the same way a picture does, and the spread is how much
