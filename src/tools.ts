@@ -277,8 +277,9 @@ export const TOOLS: Tool[] = [
         // sine held back by how far out a point lies and by which way round it
         // lies, and the first two are how much of each — which between them are
         // the difference between a spiral, a set of rings growing out of the
-        // middle, and a disc that lifts all at once. The last two are how tall
-        // any of that stands, and what it is standing on.
+        // middle, and a disc that lifts all at once. The rest are how tall any
+        // of that stands, what it is standing on, and how far the surface is
+        // allowed to wander off the whole description.
         title: "Wave",
         controls: [
           // Whole numbers, and not for tidiness: the second delay is read off an
@@ -304,6 +305,17 @@ export const TOOLS: Tool[] = [
           // three rows below, which is why this is worth stepping finely
           // rather than offered as a switch between flat and domed.
           { kind: "range", flag: "dome", label: "Dome", min: -1, max: 1, step: 0.05, value: 0 },
+          // The one slider here that does not start where the piece was first
+          // composed. A sine says the same thing everywhere, so left at none
+          // the crests come out the same height, the same distance apart, and
+          // each a perfect circle — a diagram of a wave rather than a wave.
+          // Every other control on this row changes which diagram it is; this
+          // is the one that stops it being one, and it is set low because the
+          // wave is still what the piece is.
+          //
+          // The same ceiling the Swell has, that being the point past which the
+          // surface is wandering further than the wave it is wandering off.
+          { kind: "range", flag: "churn", label: "Wander", min: 0, max: 0.2, step: 0.005, value: 0.035 },
         ],
       },
       {
@@ -321,7 +333,9 @@ export const TOOLS: Tool[] = [
           // can actually stand rather than the nearest notch to it.
           { kind: "range", flag: "mesh", label: "Surface", min: 30, max: 280, step: 10, value: 130 },
           // Not a setting so much as another draw of the same piece: it settles
-          // where every particle lies and how large it is, and nothing else.
+          // where every particle lies and how large it is, and which way the
+          // surface wanders under it. One number for the two, so a draw that is
+          // worth keeping can be come back to by remembering one thing.
           { kind: "range", flag: "seed", label: "Arrangement", min: 1, max: 99, step: 1, value: 7 },
         ],
       },
