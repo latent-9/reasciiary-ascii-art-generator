@@ -319,16 +319,19 @@ export const TOOLS: Tool[] = [
         ],
       },
       {
-        // What the disc does with nothing laid on it. None of it is reached
-        // while a file is open: a picture is drawn by the winding line, and
-        // these settle the scatter that stands in for it when there is none.
+        // A picture is drawn by the winding line, so the first of these settles
+        // the scatter that stands in for it when there is none and is not
+        // reached at all while a file is open. The other two are read either
+        // way: the surface is the edge everything is hidden behind, the line's
+        // own marks included, and the arrangement is also which way that
+        // surface wanders.
         title: "Drift",
         controls: [
           // Enough of them to read as a crowd rather than as specks, and the
           // ceiling is where a frame stops looking any different for the wait.
           { kind: "range", flag: "count", label: "Particles", min: 500, max: 40000, step: 500, value: 17000 },
           // The plane is invisible, so this buys nothing but the accuracy of the
-          // edge the crowd is hidden behind.
+          // edge whatever is drawn on it is hidden behind.
           // Stepped in tens from thirty, so the default is a place the slider
           // can actually stand rather than the nearest notch to it.
           { kind: "range", flag: "mesh", label: "Surface", min: 30, max: 280, step: 10, value: 130 },
