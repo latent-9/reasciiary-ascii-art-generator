@@ -833,6 +833,17 @@ window.addEventListener("keydown", (event) => {
   }
 });
 
+// Both of these open a file dialog, which belongs to the app and not to the
+// page — and neither call is inside a catch, so in a browser a click on either
+// is an unhandled failure in the console and nothing at all on screen. Shut
+// rather than wrapped: there is no answer to give, so the honest thing is not
+// to take the click. The shortcut reads the same flag the Render button carries.
+if (!RENDERER) {
+  openButton.disabled = true;
+  renderButton.disabled = true;
+  status.textContent = "no renderer behind this page";
+}
+
 bindCamera();
 buildTools();
 buildThemes();
