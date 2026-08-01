@@ -2,11 +2,14 @@ pub mod art;
 pub mod repl;
 
 use std::collections::HashMap;
+use std::io::Cursor;
 
+use base64::Engine;
+use image::RgbaImage;
 use rayon::prelude::*;
 use tauri::Manager;
 
-use art::canvas::AsciiColor;
+use art::canvas::{AsciiColor, CELL_ASPECT};
 use art::export::{self, Format, Settings};
 use art::generator::Generator;
 use art::params::Params;
@@ -75,6 +78,55 @@ fn settings_from(params: &Params, format: Format) -> Result<Settings, String> {
     })
 }
 
+/// The longest a still preview is drawn, in pixels.
+///
+/// Not the size the file gets. A tool that draws pixels is asked for a picture,
+/// and the picture an export writes is millions of them — encoded and spelled
+/// out as text for the window, that is tens of megabytes crossing a bridge meant
+/// for a JSON message, to be scaled straight back down into a pane a fraction of
+/// the size. What the window is being shown is the framing and the movement, and
+/// both survive the reduction.
+const PREVIEW_EDGE: u32 = 720;
+
+/// The same for one frame of a played loop, which there are up to
+/// [`PICTURE_FRAMES`] of and which pays that cost once each.
+const FILM_EDGE: u32 = 360;
+
+/// How many frames a loop of pictures is played from.
+///
+/// Fewer than a loop of text gets. Text is a few kilobytes a frame and a picture
+/// is a hundred, so the same count is a hundredfold the message; and a preview
+/// that arrives late is worse than one a little less smooth.
+const PICTURE_FRAMES: usize = 90;
+
+/// The pixel size a grid of cells stands for, held inside `edge` on its long
+/// side.
+///
+/// The grid is what both kinds of tool are sized by, so this is the same
+/// question the painter answers for an export, asked in a form that does not
+/// need a font: a cell is [`CELL_ASPECT`] times taller than it is wide, and that
+/// is the whole of the difference between the shape of a grid and the shape of
+/// the picture it stands for.
+fn picture_size(columns: usize, rows: usize, edge: u32) -> (u32, u32) {
+    let wide = columns.max(1) as f64;
+    let tall = rows.max(1) as f64 * CELL_ASPECT;
+    let held = edge as f64 / wide.max(tall);
+    (
+        (wide * held).round().max(1.0) as u32,
+        (tall * held).round().max(1.0) as u32,
+    )
+}
+
+/// A frame in the one form a `<img>` takes without a file to point at.
+fn as_data_url(frame: RgbaImage) -> Result<String, String> {
+    let mut png = Cursor::new(Vec::new());
+    frame
+        .write_to(&mut png, image::ImageFormat::Png)
+        .map_err(|error| format!("the frame could not be encoded: {error}"))?;
+    let spelled = base64::engine::general_purpose::STANDARD.encode(png.into_inner());
+    Ok(format!("data:image/png;base64,{spelled}"))
+}
+
 /// Runs `work` somewhere other than the thread the window is drawn on.
 ///
 /// A `#[tauri::command]` that is not `async` runs on the main thread, and none
@@ -93,20 +145,39 @@ where
         .map_err(|error| format!("the render thread stopped: {error}"))?
 }
 
-/// One frame as text, for the live preview. No rasterizing and no ffmpeg, so
-/// this is the cheap one — but only by comparison.
+/// One frame for the live preview: the text a glyph tool fills a grid with, or a
+/// picture spelled out as a data URL. No ffmpeg either way, so this is the cheap
+/// one — but only by comparison.
 #[tauri::command]
 async fn preview(request: Request, time: f64) -> Result<String, String> {
     off_the_ui_thread(move || {
         let (generator, _, params) = request.build()?;
         let columns = params.usize("columns", 160)?;
         let rows = params.usize("rows", 48)?;
-        match generator {
-            Generator::Glyph(generator) => Ok(generator.canvas(columns, rows, time).text()),
-            Generator::Pixel(_) => Err("this tool draws pixels, not text".into()),
-        }
+        draw(&generator, columns, rows, PREVIEW_EDGE, time)
     })
     .await
+}
+
+/// A frame in whichever of the two forms the window can show.
+///
+/// One function rather than a branch at each of the three places a frame is
+/// asked for: the window is being handed a string it puts somewhere, and which
+/// kind of string it is follows from the tool, not from what it is wanted for.
+fn draw(
+    generator: &Generator,
+    columns: usize,
+    rows: usize,
+    edge: u32,
+    time: f64,
+) -> Result<String, String> {
+    match generator {
+        Generator::Glyph(generator) => Ok(generator.canvas(columns, rows, time).text()),
+        Generator::Pixel(generator) => {
+            let (width, height) = picture_size(columns, rows, edge);
+            as_data_url(generator.frame(width, height, time))
+        }
+    }
 }
 
 /// Everything the window needs to mirror what an export will do, so the preview
@@ -130,6 +201,14 @@ pub struct Plan {
     /// anything that draws at the size it is asked for, which is the usual case;
     /// set, it settles the grid and the detail slider has nothing to say.
     grid: Option<(usize, usize)>,
+    /// Whether what comes back from [`preview`] and [`sequence`] is a picture
+    /// rather than text.
+    ///
+    /// The window has two panes for it and has to know which to use before the
+    /// first frame arrives — otherwise the answer is a hundred kilobytes of data
+    /// URL laid out as characters in a `<pre>` for as long as it takes the next
+    /// message to correct it.
+    image: bool,
 }
 
 #[tauri::command]
@@ -150,6 +229,7 @@ async fn plan(request: Request) -> Result<Plan, String> {
                 Generator::Glyph(generator) => generator.natural_grid(),
                 Generator::Pixel(_) => None,
             },
+            image: matches!(generator, Generator::Pixel(_)),
         })
     })
     .await
@@ -161,6 +241,9 @@ pub struct Film {
     frames: Vec<String>,
     /// The rate that plays them back over exactly one loop.
     fps: f64,
+    /// The same answer [`Plan::image`] gives, so a film that arrives after the
+    /// tool was changed cannot be played into the wrong pane.
+    image: bool,
 }
 
 /// Renders every frame of one loop at once, so the window can play a spin
@@ -186,30 +269,27 @@ async fn sequence(request: Request) -> Result<Film, String> {
         let columns = params.usize("columns", 160)?;
         let rows = params.usize("rows", 48)?;
         let requested = params.usize("fps", 20)?.max(1) as f64;
-
-        let Generator::Glyph(generator) = generator else {
-            return Err("this tool draws pixels, not text".into());
-        };
+        let image = matches!(generator, Generator::Pixel(_));
+        let edge = FILM_EDGE;
 
         let Some(period) = generator.loop_duration().filter(|period| *period > 0.0) else {
             // A still is a one-frame film. Playing it costs the window nothing,
             // so it does not need a second path through any of this.
-            return Ok(Film { frames: vec![generator.canvas(columns, rows, 0.0).text()], fps: 1.0 });
+            let frame = draw(&generator, columns, rows, edge, 0.0)?;
+            return Ok(Film { frames: vec![frame], fps: 1.0, image });
         };
 
         // Enough that a short loop still reads as motion, few enough that a long
         // one is not a thousand renders nobody asked for. Whatever the count
         // ends up being, the rate is set to match it, so one pass is one loop.
-        let count = ((period * requested).round() as usize).clamp(24, 240);
+        let most = if image { PICTURE_FRAMES } else { 240 };
+        let count = ((period * requested).round() as usize).clamp(24, most);
         let frames = (0..count)
             .into_par_iter()
-            .map(|index| {
-                let time = period * index as f64 / count as f64;
-                generator.canvas(columns, rows, time).text()
-            })
-            .collect();
+            .map(|index| draw(&generator, columns, rows, edge, period * index as f64 / count as f64))
+            .collect::<Result<Vec<_>, String>>()?;
 
-        Ok(Film { frames, fps: count as f64 / period })
+        Ok(Film { frames, fps: count as f64 / period, image })
     })
     .await
 }
@@ -288,4 +368,48 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![preview, plan, sequence, render_art])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A tool that asks for a square frame asks for [`CELL_ASPECT`] columns to
+    /// the row, and what the window is shown has to come back square — that
+    /// being the one claim a pixel tool makes about its own shape.
+    #[test]
+    fn a_grid_shaped_for_a_square_picture_lands_square() {
+        let (width, height) = picture_size(110, 50, 720);
+        assert_eq!(width, height);
+        assert_eq!(height, 720);
+    }
+
+    #[test]
+    fn a_picture_is_held_inside_the_edge_whichever_way_it_runs() {
+        let wide = picture_size(240, 40, 600);
+        assert_eq!(wide.0, 600);
+        assert!(wide.1 < wide.0, "{wide:?}");
+
+        let tall = picture_size(40, 60, 600);
+        assert_eq!(tall.1, 600);
+        assert!(tall.0 < tall.1, "{tall:?}");
+    }
+
+    /// A grid of nothing is a slider at rest during a rebuild, not a reason to
+    /// hand the window a picture with no pixels in it.
+    #[test]
+    fn an_empty_grid_still_has_a_picture_to_stand_for() {
+        assert_eq!(picture_size(0, 0, 720), (327, 720));
+    }
+
+    #[test]
+    fn a_frame_comes_back_as_something_an_image_tag_can_show() {
+        let url = as_data_url(RgbaImage::new(4, 4)).expect("a blank frame encodes");
+        assert!(url.starts_with("data:image/png;base64,"), "{url}");
+        let spelled = url.trim_start_matches("data:image/png;base64,");
+        let png = base64::engine::general_purpose::STANDARD
+            .decode(spelled)
+            .expect("what was spelled out reads back");
+        assert_eq!(&png[1..4], b"PNG");
+    }
 }
