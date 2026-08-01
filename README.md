@@ -157,10 +157,11 @@ at both ends of it, so no frame is the one where every line restarts at once.
 
 ## The pieces
 
-`loops` and the spiral below are the two that bring their own subject; every
-other tool is a way of looking at something somebody else made. A piece is a
-finished animation with a dial or two on it, made to be exported — a loop that
-meets itself, at a size that can be posted.
+`loops` is the one tool that brings its own subject; every other tool is a way of
+looking at something somebody else made. The spiral below is the near miss — it
+takes a file like the rest, and is the only one of them that will stand without
+one. A piece is a finished animation with a dial or two on it, made to be
+exported — a loop that meets itself, at a size that can be posted.
 
 | `--piece` | |
 | --- | --- |
@@ -190,6 +191,25 @@ by how far out a point lies *and* by which way round it lies — and a delay tha
 reads the angle is a spiral, so the crest winds outward instead of ringing. The
 crowd is seventeen thousand particles, each on its own fixed ray, crawling out
 from the middle a little above the surface and rising and falling with it.
+
+A drawing or a picture can be laid on the disc the crowd walks out across, and
+then the crowd is what shows it: a particle takes the light it is standing over,
+and one standing over the picture's paper is not drawn at all. It is read where
+the particle stands rather than where the ray it rides set off, which is the
+whole of the difference — read from the start of the ray, every point of the
+picture would be smeared out along it. Read from under the particle, the picture
+holds still while the crowd walks out through it, so what arrives is not the
+picture but the picture being carried: thinning where it is dark, riding the
+swell wherever the wave happens to be under it.
+
+It takes the file the same way the other two do, and the same flags say how to
+read it — `--invert` and `--contrast` for which end of it is the subject and how
+hard, `--color` to give each particle the colour it is standing on instead of the
+ink. `--spread` is how much of the disc it covers, and past a whole the crowd is
+standing on the middle of it, which is a crop rather than a fit. With no file at
+all it is the drift alone, which is how the piece was composed and a thing in its
+own right; `--bare` asks for that with one open, because the window always has
+one.
 
 The plane is drawn in the paper's own colour, so none of it is ever seen. That is
 deliberate, and it is the whole reason this one ends in pixels: what the plane is
@@ -245,21 +265,22 @@ bun run tauri dev
 
 The toolbar picks the tool; the panel beside the preview is that tool's own
 options and nothing else, with what the export writes at the foot of it. Three of
-the six are in it: the lift, the flat read of the same file, and the spiral. The
-other three bring their own subject and are not, because a formula turning on its
-own is a poor thing to open an app on — nothing on screen was asked for, and the
-tool somebody came here to use was three tabs along. They are still in the
-registry, and the command line asks for them by name.
+the six are in it: the lift, the flat read of the same file, and the spiral that
+lays the same file on its wave. The other three bring their own subject and are
+not, because a formula turning on its own is a poor thing to open an app on —
+nothing on screen was asked for, and the tool somebody came here to use was three
+tabs along. They are still in the registry, and the command line asks for them by
+name.
 
-The spiral brings its own subject too, and is there anyway. It is composed by
-eye — the angle it is seen from and how thick the crowd is are the whole of the
-piece — and those are questions a command line answers one rendered file at a
-time. The app still opens on the lift, so it is a tab away rather than in the
-way.
+The spiral is the one that will also stand on nothing, which is what it has in
+common with them, and it is in the window anyway. It is composed by eye — the
+angle it is seen from and how thick the crowd is are the whole of the piece — and
+those are questions a command line answers one rendered file at a time. The app
+still opens on the lift, so it is a tab away rather than in the way.
 
-The file is opened once and both tools read it, because it is the same file:
-open a drawing, see what the glyphs make of it flat, then lift it. Nothing is
-opened twice to be looked at twice.
+The file is opened once and all three read it, because it is the same file: open
+a drawing, see what the glyphs make of it flat, lift it, then let the drift carry
+it out. Nothing is opened twice to be looked at twice.
 
 The window opens on the lift, on a drawing that ships with it, so there is
 something to turn before anything has been opened.
@@ -347,7 +368,10 @@ And its own on top:
 | | `--lines` `--steps` | how many strokes, and how far each is traced | `640` `120` |
 | | `--grain` `--swirl` | how fine the field is, and how hard it turns | `1.3` `1.0` |
 | | `--seed` | which field | `7` |
-| `spiral` | `--count` | particles in the drift | `17000` |
+| `spiral` | *(first word)* | the drawing or picture to lay on the disc, or `--text` for one inline | |
+| | `--spread` | how much of the disc it covers; past a whole crops it | `1` |
+| | `--bare` | the drift on its own, with nothing laid under it | off |
+| | `--count` | particles in the drift | `17000` |
 | | `--mesh` | quads a side the plane is cut into | `130` |
 | | `--seed` | which arrangement of the drift | `7` |
 
@@ -376,10 +400,11 @@ for.
 | `--color` | keep the source's own colour, a cell at a time | off |
 | `--invert` | swap which half of the picture is background | off |
 
-`ascii` takes the last two of those as well, and they mean the same thing there:
-which end of the source is the subject and how hard the rest are pushed apart.
-The lift reads the answer as a height rather than as a shade, which is the only
-difference.
+`ascii` takes `--contrast` and `--invert` as well, and they mean the same thing
+there: which end of the source is the subject and how hard the rest are pushed
+apart. The lift reads the answer as a height rather than as a shade, which is the
+only difference. The spiral takes those two and `--color` on top, where the same
+answer decides which particles are drawn at all and what they are drawn in.
 
 An animated export is rounded to a whole number of loops so it ends where it
 began, which is what lets a GIF loop without a seam. The window shows the count
