@@ -226,6 +226,9 @@ export const TOOLS: Tool[] = [
     // The drift alone is a finer thing from up around fifty, and that is a drag
     // away: what this settles is where a tab that has just been handed a file
     // opens, and what a double-click puts back.
+    //
+    // The View sliders below carry these same three numbers and are shown these
+    // same values, because this is where they are actually kept.
     camera: { yaw: 0, pitch: 14, zoom: 1 },
     groups: [
       {
@@ -286,6 +289,25 @@ export const TOOLS: Tool[] = [
           // Not a setting so much as another draw of the same piece: it settles
           // where every particle lies and how large it is, and nothing else.
           { kind: "range", flag: "seed", label: "Arrangement", min: 1, max: 99, step: 1, value: 7 },
+        ],
+      },
+      {
+        // The same three numbers the preview is dragged and scrolled by, said
+        // out loud. The drag is still the way to find a view; this is the way to
+        // keep one. A composition that came out of a hand movement cannot be
+        // asked for again — not a fortnight later, and not at four times the
+        // size for an export — and these are what let it be written down.
+        //
+        // The bounds are the ones the preview already holds itself to, so
+        // neither handle reaches anywhere the other cannot follow.
+        title: "View",
+        controls: [
+          { kind: "range", flag: "yaw", label: "Turn", min: -180, max: 180, step: 1, value: 0 },
+          { kind: "range", flag: "pitch", label: "Tilt", min: -90, max: 90, step: 1, value: 14 },
+          // Finer steps than the rest: the wheel moves this by whatever fraction
+          // a notch of scrolling comes to, and a coarse slider would show that
+          // as a lie.
+          { kind: "range", flag: "zoom", label: "Zoom", min: 0.25, max: 4, step: 0.01, value: 1 },
         ],
       },
       // The loop is as long as the export is, so the length in the output group
