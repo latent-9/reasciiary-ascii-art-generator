@@ -1698,17 +1698,45 @@ mod tests {
     #[test]
     fn the_wandering_comes_back_to_where_it_set_off() {
         let spiral = made(&[("churn", "0.2")]);
-        for (x, y) in [(0.0, 0.0), (0.31, -0.12), (-0.4, 0.4), (0.05, 0.49)] {
-            let start = spiral.wave.wandered(x, y, 0.0);
+        let places = [(0.0, 0.0), (0.31, -0.12), (-0.4, 0.4), (0.05, 0.49)];
+        // How far the field differs from one place to another, standing still.
+        // What the movement over a loop is worth measuring against is that: a
+        // bound of its own would only say the field is not exactly frozen, and
+        // [`DRIFTING`] a hundredth of what it is would pass one — the surface
+        // holding its shape for the whole loop while the arithmetic still moves.
+        let across: Vec<f64> = places.iter().map(|&(x, y)| spiral.wave.wandered(x, y, 0.0)).collect();
+        let apart = |over: &[f64]| {
+            over.iter().cloned().fold(f64::MIN, f64::max)
+                - over.iter().cloned().fold(f64::MAX, f64::min)
+        };
+        let spatial = apart(&across);
+        for (x, y) in places {
+            // Round and back to the seam, so what is walked covers the whole
+            // loop and the last sample is the first one again.
+            let round: Vec<f64> = (0..=64)
+                .map(|step| spiral.wave.wandered(x, y, step as f64 / 64.0))
+                .collect();
             assert!(
-                (start - spiral.wave.wandered(x, y, 1.0)).abs() < 1e-12,
+                (round[0] - round[64]).abs() < 1e-12,
                 "the field was somewhere else at the seam, at ({x}, {y})"
             );
-            // And it went somewhere in between, or the loop is closed by the
-            // field never having moved.
-            let moved = (0..8)
-                .any(|step| (spiral.wave.wandered(x, y, step as f64 / 8.0) - start).abs() > 1e-6);
-            assert!(moved, "the field stood still all the way round, at ({x}, {y})");
+            let moved = apart(&round);
+            assert!(
+                moved > spatial * 0.2,
+                "the field hardly went anywhere all the way round: {moved} against {spatial} \
+                 between one place and another, at ({x}, {y})"
+            );
+            // And it turned rather than boiled: a field walked round a circle
+            // wanders up and down a few times over a loop, so the whole distance
+            // it covers is a small multiple of the range it covers it in. Read
+            // far enough round the circle and every frame is a fresh field,
+            // which is a loop that closes and nothing anybody would watch.
+            let walked: f64 = round.windows(2).map(|pair| (pair[1] - pair[0]).abs()).sum();
+            assert!(
+                walked < moved * 6.0,
+                "the field boiled rather than turning: {walked} walked over a swing of {moved}, \
+                 at ({x}, {y})"
+            );
         }
     }
 
