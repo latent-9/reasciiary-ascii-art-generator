@@ -219,7 +219,21 @@ is where the picture stops being a subject and starts being paper: below it a
 particle draws nothing at all, which is what keeps the dark of a picture dark
 rather than dusted over — and where that line falls is a judgement about the
 picture, low for a subject sitting in shadow and high for one meant to read as a
-stencil. With no file at all it is the drift alone, which is how the piece was
+stencil.
+
+Before any of those are asked, the picture is opened out to its own darkest and
+brightest — `--open`, a whole by default and nought to read the light exactly as
+it stands. It has to come first and it has to be on: the crowd carries light as
+the *size* of a mark, so a picture whose light never rises far is a picture drawn
+entirely in marks too fine to see. A screenshot of pale text on a dark field is
+the worst case and the commonest one — read down to the size the crowd can show,
+every stroke in it averages away to a few hundredths and the whole picture comes
+out under the paper floor, so the frame arrives with the drift on it and no sign
+a file was ever opened. `--contrast` cannot rescue that, and this is why: it
+turns about the middle of the range, so a picture with nothing near the middle is
+one it can only push further down.
+
+With no file at all it is the drift alone, which is how the piece was
 composed and a thing in its own right; `--bare` asks for that with one open,
 because the window always has one.
 
@@ -383,6 +397,7 @@ And its own on top:
 | `spiral` | *(first word)* | the drawing or picture to lay on the disc, or `--text` for one inline | |
 | | `--spread` | how much of the disc it covers; past a whole crops it | `1` |
 | | `--fit` | `contain` to stand it inside the disc, `cover` to fill it | `contain` |
+| | `--open` | how far it is opened out to its own darkest and brightest | `1` |
 | | `--floor` | how faint the light may get before it counts as paper | `0.04` |
 | | `--bare` | the drift on its own, with nothing laid under it | off |
 | | `--count` | particles in the drift | `17000` |
