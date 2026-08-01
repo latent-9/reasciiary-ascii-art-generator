@@ -246,6 +246,14 @@ export const TOOLS: Tool[] = [
             value: "contain",
             options: ["contain", "cover"],
           },
+          // How far the picture is opened out to its own darkest and brightest
+          // before anything below is asked. Sits above the tones because it runs
+          // before them: contrast turns about the middle of the range, so a
+          // picture with nothing near the middle is one it can only darken.
+          // Fully open by default — the crowd draws light as the size of a mark,
+          // and a screenshot of pale text on a dark field has no light in it to
+          // speak of once it is read down to the size the crowd shows.
+          { kind: "range", flag: "open", label: "Open out", min: 0, max: 1, step: 0.05, value: 1 },
           ...TONES,
           // Where the picture stops being a subject and starts being paper the
           // crowd walks over without marking. Sits under the tones because it is
