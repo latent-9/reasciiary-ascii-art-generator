@@ -94,10 +94,21 @@ const SUBJECT: Source = {
   sample: DIAMOND,
 };
 
-/// The two tools that draw pixels and read them back offer the same choices
-/// about the reading, because it is the same reader behind both. The controls
-/// are shared rather than copied — nothing here is written to, so one list can
-/// serve two tools without them seeing each other's settings.
+/// How much light a source is taken to carry, which is one question wherever a
+/// source is read: which end of it is the subject, how far apart the rest are
+/// pushed, and whether its own colours come with it. The backend reads these
+/// three off the same three flags in every tool that takes a file, so they are
+/// written once here too.
+const TONES: Control[] = [
+  { kind: "range", flag: "contrast", label: "Contrast", min: 0.2, max: 4, step: 0.1, value: 1 },
+  { kind: "switch", flag: "color", label: "Source colour", value: false },
+  { kind: "switch", flag: "invert", label: "Invert", value: false },
+];
+
+/// The tools that read a source back as marks offer the same choices about the
+/// reading, because it is the same reader behind them. The controls are shared
+/// rather than copied — nothing here is written to, so one list can serve two
+/// tools without them seeing each other's settings.
 const READING: Group = {
   title: "Reading",
   controls: [
@@ -108,9 +119,7 @@ const READING: Group = {
       value: "match",
       options: ["match", "shades", "detailed", "ink"],
     },
-    { kind: "range", flag: "contrast", label: "Contrast", min: 0.2, max: 4, step: 0.1, value: 1 },
-    { kind: "switch", flag: "color", label: "Source colour", value: false },
-    { kind: "switch", flag: "invert", label: "Invert", value: false },
+    ...TONES,
   ],
 };
 
@@ -137,17 +146,20 @@ const MOVEMENT: Control[] = [
 
 /// The window is the lift's window, and the flat read is here because it is the
 /// same question asked without the third dimension — open the file, see what the
-/// glyphs make of it, then lift it. One file, carried between the two.
+/// glyphs make of it, then lift it. One file, carried between the three.
 ///
-/// The spiral brings its own subject, which is the very thing the rest of the
-/// tools that do are kept out of the window for: a formula turning on its own is
-/// a fine thing to watch and a poor thing to open an app on, and the tool
-/// somebody came here to use should not be three tabs along. The app still opens
-/// on the lift and this is one tab from it, so nothing about that has changed.
-/// What earns it the tab is that the piece is composed by eye — the angle it is
-/// seen from and how thick the crowd is are the whole of it — and a command line
-/// answers a question about the angle one rendered file at a time. The others
-/// are still in the registry behind it, where a piece is asked for by name.
+/// The spiral is the third thing to do with that file: lay it on the wave and
+/// let the drift carry it out. It is also the only tool here that will stand
+/// without one — the drift is a piece in its own right, and "Drift only" is how
+/// to ask for it — and a piece that needs nothing opened is what the rest of the
+/// registry is kept out of the window for: a formula turning on its own is a
+/// fine thing to watch and a poor thing to open an app on, and the tool somebody
+/// came here to use should not be three tabs along. The app still opens on the
+/// lift and this is one tab from it. What earns it the tab is that the piece is
+/// composed by eye — the angle it is seen from and how thick the crowd is are
+/// the whole of it — and a command line answers a question about an angle one
+/// rendered file at a time. The others are still in the registry behind it,
+/// where a piece is asked for by name.
 export const TOOLS: Tool[] = [
   {
     name: "ascii",
@@ -206,11 +218,26 @@ export const TOOLS: Tool[] = [
     name: "spiral",
     label: "Spiral",
     blurb: "A wave winding out from the middle under a drift of particles.",
+    source: SUBJECT,
     // Turned a corner toward the eye and tipped most of the way over, which is
     // the pitch that leaves the near swells standing in front of the far ones.
     // Flat on would be a target and edge on a line.
     camera: { yaw: 45, pitch: 52, zoom: 1 },
     groups: [
+      {
+        title: "Subject",
+        controls: [
+          // The window always has a file to hand, so this is the only way from
+          // in here to ask for the drift as it was composed, with nothing laid
+          // under it. On a command line it is a line with no file on it.
+          { kind: "switch", flag: "bare", label: "Drift only", value: false },
+          // How far over the drift the picture is laid. Past a whole the crowd
+          // is standing on the middle of it, which is a crop rather than a fit
+          // and a fair thing to want.
+          { kind: "range", flag: "spread", label: "Spread", min: 0.2, max: 2, step: 0.05, value: 1 },
+          ...TONES,
+        ],
+      },
       {
         title: "Drift",
         controls: [
