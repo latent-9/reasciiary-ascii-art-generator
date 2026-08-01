@@ -8,9 +8,12 @@
 //! and a delay that reads the angle is a spiral, so the crest winds outward
 //! instead of ringing. How much of each delay there is settles what the piece
 //! is: rings growing out of the middle where no angle is read, one arm or six
-//! where it is, winding either way round. See [`Wave`]. The crowd is particles,
-//! each on its own fixed ray, crawling out from the middle a little above the
-//! surface and rising and falling with it.
+//! where it is, winding either way round. See [`Wave`]. The disc the whole of
+//! that runs over is flat as the piece was composed and need not be — lifted, it
+//! is a dome with the wave still running over it, and the crowd stacks against
+//! its edge rather than spreading over its face. The crowd is particles, each on
+//! its own fixed ray, crawling out from the middle a little above the surface
+//! and rising and falling with it.
 //!
 //! The plane is drawn in the paper's own colour, so nothing of it is visible.
 //! That is deliberate, and it is the whole reason this tool draws pixels: what
@@ -106,6 +109,13 @@ const SETTLED: f64 = 0.25;
 /// now. See [`Wave`], and [`rings`] and [`arms`] for what either is held to.
 const RINGS: f64 = 8.0;
 const ARMS: f64 = 1.0;
+
+/// How far the disc it runs over is lifted into a dome, as it was composed.
+///
+/// Flat, which is the one amount that leaves the piece its horizon: a plane seen
+/// nearly edge-on runs off the top of the frame, and everything the tool does
+/// with [`LIFT`] and [`REACH`] is about that. See [`dome`].
+const DOME: f64 = 0.0;
 
 /// How many turns the line makes over a period, as it was composed.
 ///
@@ -258,6 +268,22 @@ fn rings(given: f64) -> f64 {
 /// whether or not a file is open.
 fn swell(given: f64) -> f64 {
     given.clamp(0.0, 4.0 * SWELL)
+}
+
+/// How far the disc is lifted into a dome, as a share of its own radius.
+///
+/// None of it is the flat disc the piece was composed on, and one of it is a
+/// half-sphere — the middle standing a full radius above the rim. Not further:
+/// past a half-sphere the shape has to overhang itself to keep going, and a
+/// height read off how far out a point lies cannot say that. What it would do
+/// instead is climb faster than the mesh is cut and come apart at the rim.
+///
+/// Below none it is a bowl, which is the same shape looked into rather than at.
+/// Worth having and not merely allowed: the crowd crawls out over the inside of
+/// it, so the near rim stands between the eye and the middle instead of behind
+/// it, and the piece is read through its own edge.
+fn dome(given: f64) -> f64 {
+    given.clamp(-1.0, 1.0)
 }
 
 /// How many arms the crest winds into, and which way round it winds.
@@ -424,19 +450,25 @@ struct Point {
     z: f64,
 }
 
-/// The delay the plane's height is read through, which is the whole of what
-/// shape the piece has.
+/// What the plane is bent into, under the wave that runs over it.
 ///
-/// The two numbers are one thing said about two directions, so they are carried
-/// as one: how far the wave is put off for the distance out, and how far for the
-/// way round. A delay that reads only the first is rings growing out of the
-/// middle. One that reads both is a spiral, because a crest held back further
-/// along the angle has to lean as it travels — and how many arms it leans into
-/// is the second number.
+/// The first two numbers are one thing said about two directions, so they are
+/// carried together: how far the wave is put off for the distance out, and how
+/// far for the way round. A delay that reads only the first is rings growing out
+/// of the middle. One that reads both is a spiral, because a crest held back
+/// further along the angle has to lean as it travels — and how many arms it
+/// leans into is the second number.
+///
+/// The third is not part of that delay and is not a wave at all: it is the disc
+/// itself lifted into a dome, with the wave still running over whatever shape it
+/// has been left. Added rather than switched to, so none of it is the flat disc
+/// the piece was composed on and every other setting means the same thing at any
+/// amount of it. See [`dome`].
 #[derive(Clone, Copy)]
 struct Wave {
     rings: f64,
     arms: f64,
+    dome: f64,
 }
 
 impl Wave {
@@ -460,8 +492,26 @@ impl Wave {
             y: y * REACH,
             // Mostly under the plane and a little over it, which is what leaves
             // the swells reading as troughs with crests drawn between them.
-            z: height * (4.0 * (TAU * (phase - delay)).sin() - 2.0),
+            z: self.raised(out) + height * (4.0 * (TAU * (phase - delay)).sin() - 2.0),
         }
+    }
+
+    /// How far the disc itself stands above its own rim at this distance out.
+    ///
+    /// A hemisphere, which is the shape and not one of several that would do.
+    /// What is wanted from it is what a crowd spread evenly over a disc does when
+    /// that disc is lifted and then looked at from the side: every particle the
+    /// same distance out lands at the same height, wherever round it stands, so
+    /// they stack across the frame instead of spreading over it — and they stack
+    /// most tightly where the shape is steepest. A hemisphere is steepest at its
+    /// rim and level at its top, so what arrives is a bright edge around a
+    /// thinning middle. Round it off and the edge goes with it.
+    ///
+    /// Nothing outside the rim, where the root has no answer. The mesh is cut
+    /// square and reaches into the corners, which the disc never does.
+    fn raised(&self, out: f64) -> f64 {
+        let rim = START + TRAVEL;
+        self.dome * (rim * rim - out * out).max(0.0).sqrt()
     }
 }
 
@@ -866,6 +916,7 @@ fn assemble(params: &Params) -> Result<Spiral, String> {
         wave: Wave {
             rings: rings(params.f64("rings", RINGS)?),
             arms: arms(params.f64("arms", ARMS)?),
+            dome: dome(params.f64("dome", DOME)?),
         },
         spin: spin(params.f64("spin", SPIN)?),
         mesh: mesh(params.usize("mesh", 130)?),
@@ -968,7 +1019,7 @@ mod tests {
     #[test]
     fn the_wave_has_no_step_where_the_angle_comes_round() {
         for asked in [-6.0, -1.0, 0.0, ARMS, 3.0, 6.0, 2.4] {
-            let wave = Wave { rings: RINGS, arms: arms(asked) };
+            let wave = Wave { rings: RINGS, arms: arms(asked), dome: DOME };
             for phase in [0.0, 0.31, 0.68] {
                 for out in [0.1, 0.4, 0.8] {
                     let above = wave.at(-out, 1e-9, phase, SWELL).z;
@@ -991,7 +1042,10 @@ mod tests {
             &[("rings", "20")],
             &[("spin", "0"), ("text", BLOCK)],
             &[("spin", "-2"), ("text", BLOCK)],
+            &[("dome", "1")],
+            &[("dome", "-1"), ("rings", "0")],
             &[("arms", "4"), ("rings", "3"), ("spin", "3"), ("text", BLOCK)],
+            &[("dome", "0.7"), ("swell", "0.2"), ("spin", "2"), ("text", BLOCK)],
         ] {
             let spiral = made(shape);
             let start = spiral.picture(WIDE, TALL, 0.0);
@@ -1022,8 +1076,8 @@ mod tests {
         let height = |wave: &Wave, out: f64, angle: f64| {
             wave.at(out * angle.cos(), out * angle.sin(), 0.21, SWELL).z
         };
-        let ringed = Wave { rings: RINGS, arms: 0.0 };
-        let armed = Wave { rings: RINGS, arms: ARMS };
+        let ringed = Wave { rings: RINGS, arms: 0.0, dome: DOME };
+        let armed = Wave { rings: RINGS, arms: ARMS, dome: DOME };
         for out in [0.12, 0.3, 0.48] {
             let round = |wave: &Wave| -> Vec<f64> {
                 (1..8)
@@ -1042,7 +1096,7 @@ mod tests {
     #[test]
     fn the_wave_repeats_as_often_as_it_is_asked_to() {
         let crests = |asked: f64| {
-            let wave = Wave { rings: rings(asked), arms: 0.0 };
+            let wave = Wave { rings: rings(asked), arms: 0.0, dome: DOME };
             let along: Vec<f64> = (1..96)
                 .map(|step| {
                     let out = step as f64 / 192.0;
@@ -1434,6 +1488,48 @@ mod tests {
         let under = swing(&made(&[("text", BLOCK)]));
         assert!(under > 0.0, "the wave went flat under a picture rather than settling");
         assert!(under * 2.0 < bare, "{under} against {bare} with nothing laid on the disc");
+    }
+
+    /// A lifted disc stands highest in the middle and meets its own rim, and
+    /// past the rim it is nothing at all — the mesh is cut square and reaches
+    /// into corners the disc never had. What is between is a half-sphere, which
+    /// is the shape and not one that would merely do: it is the one that is
+    /// steepest exactly where the crowd is meant to stack.
+    #[test]
+    fn a_lifted_disc_is_a_half_sphere_out_to_its_rim_and_nothing_past_it() {
+        let rim = START + TRAVEL;
+        let raised = |dome: f64, out: f64| Wave { rings: 0.0, arms: 0.0, dome }.raised(out);
+
+        assert_eq!(raised(1.0, 0.0), rim, "the middle of a half-sphere stands a radius up");
+        assert_eq!(raised(1.0, rim), 0.0, "the rim of the disc came away from the plane");
+        assert_eq!(raised(1.0, 0.9), 0.0, "the corners of the mesh were lifted too");
+        assert_eq!(raised(0.0, 0.2), 0.0, "a disc asked for no dome was bent anyway");
+        // A bowl is the same shape looked into, so it holds at every distance.
+        for out in [0.0, 0.1, 0.3, rim] {
+            assert_eq!(raised(-1.0, out), -raised(1.0, out), "the bowl was not the dome at {out}");
+        }
+        // Steepest at the rim and level at the top, which is what stacks the
+        // crowd against the edge. Measured as how far the shape falls over the
+        // same step out, taken near the middle and near the rim.
+        let step = 0.02;
+        let flat = raised(1.0, 0.0) - raised(1.0, step);
+        let sheer = raised(1.0, rim - step) - raised(1.0, rim);
+        assert!(sheer > flat * 10.0, "{sheer} at the rim against {flat} at the middle");
+    }
+
+    /// The wave still runs over whatever the disc has been bent into, so lifting
+    /// it adds a shape rather than replacing the piece with one.
+    #[test]
+    fn a_wave_still_runs_over_a_lifted_disc() {
+        let swing = |dome: &str| {
+            let spiral = made(&[("dome", dome)]);
+            let over: Vec<f64> = (0..64)
+                .map(|step| spiral.wave.at(0.3, 0.0, step as f64 / 64.0, spiral.swell).z)
+                .collect();
+            over.iter().cloned().fold(f64::MIN, f64::max)
+                - over.iter().cloned().fold(f64::MAX, f64::min)
+        };
+        assert!((swing("1") - swing("0")).abs() < 1e-9, "{} against {}", swing("1"), swing("0"));
     }
 
     /// How tall the wave stands is asked for, and the settling a picture does is
