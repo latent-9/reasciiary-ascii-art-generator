@@ -106,14 +106,28 @@ const GRAIN: f64 = 1.0 / 320.0;
 const SAMPLE: u32 = 256;
 
 /// Below this a particle is standing on the picture's own paper and is not
-/// drawn.
+/// drawn, unless a line says otherwise.
 ///
-/// A dot carries how much light it found in how strongly it is drawn, so a faint
-/// one is honest and this does not have to cut high. It is here so the dark half
-/// of a picture comes out empty rather than dusted over: a haze reads as a grey
-/// wash, and paper showing through is most of what makes a picture drawn in dots
-/// legible at all.
-const FAINT: f32 = 1.0 / 24.0;
+/// A dot carries how much light it found in how large it is drawn, so a faint
+/// one is honest and this does not have to cut high. It is set at all so the
+/// dark half of a picture comes out empty rather than dusted over: a haze reads
+/// as a grey wash, and paper showing through is most of what makes a picture
+/// drawn in dots legible at all.
+///
+/// Where exactly it falls is a judgement about the picture rather than about the
+/// piece, though — a photograph with its subject in shadow wants it low, and a
+/// drawing meant to read as a stencil wants it high — so it is only where the
+/// cut starts. See [`floor`].
+const FAINT: f64 = 0.04;
+
+/// How faint the light gets before the picture is taken to be paper there.
+///
+/// The ceiling stops short of the whole: past it the light left over is so
+/// narrow that all a picture has is its brightest handful of pixels, and what
+/// arrives is not a stencil of the subject but a scatter of specks off it.
+fn floor(given: f64) -> f64 {
+    given.clamp(0.0, 0.9)
+}
 
 /// How many places along its run a particle is drawn at once.
 ///
@@ -263,16 +277,20 @@ struct Subject {
     tall: usize,
     /// How far the picture reaches over the plane, across and away.
     half: (f64, f64),
+    /// Below this the light is the picture's paper — see [`FAINT`].
+    floor: f32,
 }
 
 impl Subject {
     /// `spread` is how far over the disc the picture is laid, `fit` how a
-    /// picture that is not square meets a disc that is, and `ink` what the crowd
-    /// draws in when the picture's own colours are not wanted.
+    /// picture that is not square meets a disc that is, `floor` how faint its
+    /// light gets before it counts as paper, and `ink` what the crowd draws in
+    /// when the picture's own colours are not wanted.
     fn new(
         picture: &RgbaImage,
         spread: f64,
         fit: Fit,
+        floor: f64,
         tones: Tones,
         colored: bool,
         ink: [f32; 3],
@@ -321,6 +339,7 @@ impl Subject {
             wide: wide as usize,
             tall: tall as usize,
             half: (disc * wide as f64 / side, disc * tall as f64 / side),
+            floor: floor as f32,
         }
     }
 
@@ -343,7 +362,7 @@ impl Subject {
 
         let at = down * self.wide + across;
         let light = self.light[at];
-        (light > FAINT).then(|| (self.tint[at], light as f64))
+        (light > self.floor).then(|| (self.tint[at], light as f64))
     }
 }
 
@@ -495,12 +514,13 @@ fn assemble(params: &Params) -> Result<Spiral, String> {
     // All of the picture unless the disc being full matters more, which is the
     // same fallback the flat read makes.
     let fit = Fit::from_params(params, Fit::Contain)?;
+    let blank = floor(params.f64("floor", FAINT)?);
     let tones = Tones::from_params(params)?;
     let colored = params.is_set("color");
 
     // Anything the app can open is a subject here, and none is a subject too:
     // without one the drift is drawn in its own ink, as it always was.
-    let laid = |picture: &RgbaImage| Subject::new(picture, over, fit, tones, colored, ink);
+    let laid = |picture: &RgbaImage| Subject::new(picture, over, fit, blank, tones, colored, ink);
     let written = |text: &str| laid(&raster_of(&AsciiCanvas::from_text(text)));
     // On a command line, no subject is a line with no file on it. The window has
     // no such line — it carries one file between all of its tools and hands it to
@@ -691,7 +711,8 @@ mod tests {
 
     fn laid(picture: &RgbaImage, colored: bool, fit: Fit) -> Spiral {
         let mut spiral = made(&[("yaw", "0"), ("pitch", "0")]);
-        spiral.subject = Some(Subject::new(picture, 1.0, fit, Tones::PLAIN, colored, spiral.ink));
+        let subject = Subject::new(picture, 1.0, fit, FAINT, Tones::PLAIN, colored, spiral.ink);
+        spiral.subject = Some(subject);
         spiral
     }
 
@@ -717,6 +738,32 @@ mod tests {
         let half = drawn(&carrying(&painted(|_, _| [128, 128, 128, 255]), false).picture(WIDE, TALL, 0.2));
         assert!(half > 0, "the crowd went out altogether");
         assert!(half * 4 < full * 3, "{half} lit against {full} in the full of the light");
+    }
+
+    /// Where the picture stops being a subject and starts being its own paper.
+    /// Which is a judgement about the picture rather than about the piece, so it
+    /// moves: an even half-light is a crowd under a low cut and nothing at all
+    /// under a high one.
+    #[test]
+    fn the_cut_says_how_faint_the_light_may_get_before_it_is_paper() {
+        let half = painted(|_, _| [128, 128, 128, 255]);
+        let under = |floor| {
+            let mut spiral = made(&[("yaw", "0"), ("pitch", "0")]);
+            let ink = spiral.ink;
+            spiral.subject =
+                Some(Subject::new(&half, 1.0, Fit::Contain, floor, Tones::PLAIN, false, ink));
+            drawn(&spiral.picture(WIDE, TALL, 0.2))
+        };
+
+        assert!(under(0.2) > 0, "the crowd was taken for paper under a cut it stands over");
+        assert_eq!(under(0.7), 0, "the crowd stood on light the cut had taken for paper");
+    }
+
+    #[test]
+    fn a_cut_that_leaves_nothing_but_specks_is_refused() {
+        assert_eq!(floor(-1.0), 0.0);
+        assert_eq!(floor(0.04), 0.04);
+        assert_eq!(floor(4.0), 0.9);
     }
 
     /// A picture that is not square meeting a disc that is. Contained, the whole

@@ -214,10 +214,14 @@ standing on the middle of it, which is a crop rather than a fit. `--fit` is the
 other half of that question, and it is the flat read's word for the same thing: a
 disc is round and a photograph is not, so `contain` stands the whole picture
 inside the disc and leaves the near and far of it empty, while `cover` fills the
-disc and lets the ends of the picture walk out past the last particle. With no
-file at all it is the drift alone, which is how the piece was composed and a
-thing in its own right; `--bare` asks for that with one open, because the window
-always has one.
+disc and lets the ends of the picture walk out past the last particle. `--floor`
+is where the picture stops being a subject and starts being paper: below it a
+particle draws nothing at all, which is what keeps the dark of a picture dark
+rather than dusted over — and where that line falls is a judgement about the
+picture, low for a subject sitting in shadow and high for one meant to read as a
+stencil. With no file at all it is the drift alone, which is how the piece was
+composed and a thing in its own right; `--bare` asks for that with one open,
+because the window always has one.
 
 The plane is drawn in the paper's own colour, so none of it is ever seen. That is
 deliberate, and it is the whole reason this one ends in pixels: what the plane is
@@ -379,6 +383,7 @@ And its own on top:
 | `spiral` | *(first word)* | the drawing or picture to lay on the disc, or `--text` for one inline | |
 | | `--spread` | how much of the disc it covers; past a whole crops it | `1` |
 | | `--fit` | `contain` to stand it inside the disc, `cover` to fill it | `contain` |
+| | `--floor` | how faint the light may get before it counts as paper | `0.04` |
 | | `--bare` | the drift on its own, with nothing laid under it | off |
 | | `--count` | particles in the drift | `17000` |
 | | `--mesh` | quads a side the plane is cut into | `130` |

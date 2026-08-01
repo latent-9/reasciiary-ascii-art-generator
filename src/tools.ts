@@ -247,6 +247,10 @@ export const TOOLS: Tool[] = [
             options: ["contain", "cover"],
           },
           ...TONES,
+          // Where the picture stops being a subject and starts being paper the
+          // crowd walks over without marking. Sits under the tones because it is
+          // the same question they ask: which of this picture is the subject.
+          { kind: "range", flag: "floor", label: "Paper below", min: 0, max: 0.6, step: 0.01, value: 0.04 },
         ],
       },
       {
