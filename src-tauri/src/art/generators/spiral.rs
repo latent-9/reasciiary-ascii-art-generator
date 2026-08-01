@@ -320,10 +320,13 @@ fn swell(given: f64) -> f64 {
 /// and the bands come apart into ridges.
 ///
 /// None of it is the wave alone, exactly as the piece was first drawn, which is
-/// worth keeping reachable and is not worth opening on. The ceiling is where the
-/// wandering stands as tall as the wave may — see [`swell`] — past which the
+/// worth keeping reachable and is not worth opening on. The ceiling is the same
+/// number the swell's is, and it is where the wandering stands about as tall as
+/// the wave the piece opens on stands at its rim — see [`SWELL`] — past which the
 /// piece is a rough surface that a wave is running under rather than a wave with
-/// a roughness on it, and the arms cannot be found in it at all.
+/// a roughness on it, and the arms cannot be found in it at all. Asked for at its
+/// own ceiling the swell is several times that, which is the right way round: the
+/// taller the wave stands, the less a fixed wandering takes off it.
 ///
 /// A picture laid on the disc settles this the way it settles the swell, and for
 /// the same reason: the lens drags whatever stands on a slope, and a picture
