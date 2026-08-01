@@ -18,6 +18,13 @@
 //! as characters the plane would have to take a shade of its own, and the piece
 //! would be a lit relief with some dust on it — a different picture.
 //!
+//! A drawing or a photograph can be laid on the disc the drift covers, and then
+//! the crowd is what shows it: a particle takes the light it is standing over,
+//! and one standing over the picture's paper is not drawn at all. The picture
+//! holds still while the crowd walks out through it, so what arrives is not the
+//! picture but the picture being carried — thinning where it is dark, riding the
+//! swell where the wave is under it. See [`Subject`].
+//!
 //! Every length here is a fraction of the frame's height, so the same numbers
 //! compose the preview and the poster. The eye stands at the distance where
 //! [`FIELD`] takes in exactly one of those heights, which is what makes that
@@ -34,14 +41,16 @@
 
 use std::f64::consts::{FRAC_PI_3, PI, TAU};
 
+use image::imageops::{resize, FilterType};
 use image::RgbaImage;
 
-use crate::art::canvas::{AsciiColor, CELL_ASPECT};
+use crate::art::canvas::{AsciiCanvas, AsciiColor, CELL_ASPECT};
 use crate::art::export;
 use crate::art::generator::{Generator, PixelGenerator};
 use crate::art::motion::scatter;
 use crate::art::params::Params;
 use crate::art::raster::{Raster, Seen};
+use crate::art::read::{open, raster_of, Source, Tones};
 
 use super::ascii::Vector3;
 
@@ -87,6 +96,24 @@ const TRAVEL: f64 = 0.35;
 /// The largest a particle is drawn, as a radius in frames.
 const GRAIN: f64 = 1.0 / 320.0;
 
+/// The longest side a subject is read down to.
+///
+/// The crowd is the only thing that draws it, and tens of thousands spread over
+/// the disc stand a couple of hundred apart at best — so anything finer is
+/// detail no particle will ever be standing on. Read down rather than sampled at
+/// a point, which is the difference between a photograph and its own noise.
+const SAMPLE: u32 = 256;
+
+/// Below this a particle is standing on the picture's own paper and is not
+/// drawn.
+///
+/// A dot carries how much light it found in how strongly it is drawn, so a faint
+/// one is honest and this does not have to cut high. It is here so the dark half
+/// of a picture comes out empty rather than dusted over: a haze reads as a grey
+/// wash, and paper showing through is most of what makes a picture drawn in dots
+/// legible at all.
+const FAINT: f32 = 1.0 / 24.0;
+
 /// How many places along its run a particle is drawn at once.
 ///
 /// One particle drawn six times, not six particles: they share a ray and a size,
@@ -110,6 +137,17 @@ fn count(given: usize) -> usize {
 /// hides things behind. Too coarse and a swell occludes in steps.
 fn mesh(given: usize) -> usize {
     given.clamp(16, 400)
+}
+
+/// How far over the disc a subject is spread, as a share of the whole of it.
+///
+/// Below the floor the picture is a speck in the middle of a crowd that is
+/// nearly all standing off it. Past the ceiling it is a crop that is being asked
+/// for rather than a fit — which is a fair thing to want, so the ceiling is set
+/// where a quarter of the picture still reaches the disc rather than where the
+/// whole of it does.
+fn spread(given: f64) -> f64 {
+    given.clamp(0.1, 4.0)
 }
 
 /// How far the eye stands off the plane's own middle, in frames.
@@ -159,15 +197,20 @@ impl Particle {
         }
     }
 
-    /// Where it stands when it is `along` of the way through its run, and how
-    /// large it is drawn there.
-    fn at(&self, along: f64, phase: f64) -> (Point, f64) {
+    /// Where over the plane it stands when it is `along` of the way through its
+    /// run, and how large it is drawn there.
+    ///
+    /// Flat — where it stands on the disc, before the wave is asked how high the
+    /// plane is there. A subject is laid on the disc rather than draped over the
+    /// swell, so this is the one point both of them are asked about.
+    fn at(&self, along: f64) -> ((f64, f64), f64) {
         let out = self.start + along * TRAVEL;
-        let mut point = surface(out * self.angle.cos(), out * self.angle.sin(), phase);
-        point.z += RIDE;
-        // Nought at both ends of the run and largest in the middle, so a
-        // particle arrives and leaves rather than blinking on and off.
-        (point, self.size * (PI * along).sin().max(0.0).sqrt())
+        (
+            (out * self.angle.cos(), out * self.angle.sin()),
+            // Nought at both ends of the run and largest in the middle, so a
+            // particle arrives and leaves rather than blinking on and off.
+            self.size * (PI * along).sin().max(0.0).sqrt(),
+        )
     }
 }
 
@@ -197,6 +240,91 @@ fn surface(x: f64, y: f64, phase: f64) -> Point {
         // Mostly under the plane and a little over it, which is what leaves the
         // swells reading as troughs with crests drawn between them.
         z: height * (4.0 * (TAU * (phase - delay)).sin() - 2.0),
+    }
+}
+
+/// A picture for the crowd to carry, laid flat on the disc.
+///
+/// Read where a particle stands rather than where it set off, so the picture
+/// holds still while the crowd walks out through it. Read the other way it would
+/// be smeared along every ray at once — a picture being dragged apart rather
+/// than one being shown.
+///
+/// Settled once at the size it will be read at, tones and all. What a frame then
+/// costs is an index and a comparison a particle, whatever was opened.
+struct Subject {
+    /// How much light stands at each pixel, and what colour to draw it in — the
+    /// picture's own where that was asked for, and the crowd's ink where it was
+    /// not, so a particle never has to ask which.
+    light: Vec<f32>,
+    tint: Vec<[f32; 3]>,
+    wide: usize,
+    tall: usize,
+    /// How far the picture reaches over the plane, across and away.
+    half: (f64, f64),
+}
+
+impl Subject {
+    /// `spread` is how far over the disc the picture is laid, and `ink` what the
+    /// crowd draws in when the picture's own colours are not wanted.
+    fn new(picture: &RgbaImage, spread: f64, tones: Tones, colored: bool, ink: [f32; 3]) -> Self {
+        let (wide, tall) = (picture.width().max(1), picture.height().max(1));
+        // In proportion, and only ever smaller: a picture already coarser than
+        // the crowd is at the size the crowd can show, and blowing it up would
+        // spread its own pixels out into squares nothing is asking for.
+        let scale = (SAMPLE as f64 / wide.max(tall) as f64).min(1.0);
+        let read = |side: u32| ((side as f64 * scale).round() as u32).max(1);
+        let (wide, tall) = (read(wide), read(tall));
+        let small = resize(picture, wide, tall, FilterType::Triangle);
+
+        let light = small.pixels().map(|pixel| tones.light(&pixel.0)).collect();
+        let tint = small
+            .pixels()
+            .map(|pixel| {
+                if !colored {
+                    return ink;
+                }
+                // The colour as it was written. Which end of the picture is the
+                // subject is a question about its light, and asking it again of
+                // the colours would leave a photograph in its own negative.
+                [pixel.0[0], pixel.0[1], pixel.0[2]].map(|channel| channel as f32 / 255.0)
+            })
+            .collect();
+
+        // The disc the drift covers is what the picture is laid over, since the
+        // crowd is what has to carry it: any wider and the corners of it are out
+        // where there is nobody standing.
+        let disc = (START + TRAVEL) * spread;
+        let long = wide.max(tall) as f64;
+        Self {
+            light,
+            tint,
+            wide: wide as usize,
+            tall: tall as usize,
+            half: (disc * wide as f64 / long, disc * tall as f64 / long),
+        }
+    }
+
+    /// What the picture shows at this point of the plane: what a particle
+    /// standing there is drawn in, and how strongly. Nothing off the picture,
+    /// and nothing on its paper.
+    fn at(&self, x: f64, y: f64) -> Option<([f32; 3], f64)> {
+        // A picture counts its rows down from the top, and so does the plane:
+        // its y runs away from the eye, and away from the eye is down the
+        // picture at every pitch there is anything to see from.
+        let across = (1.0 + x / self.half.0) / 2.0 * self.wide as f64;
+        let down = (1.0 + y / self.half.1) / 2.0 * self.tall as f64;
+        if across < 0.0 || down < 0.0 {
+            return None;
+        }
+        let (across, down) = (across as usize, down as usize);
+        if across >= self.wide || down >= self.tall {
+            return None;
+        }
+
+        let at = down * self.wide + across;
+        let light = self.light[at];
+        (light > FAINT).then(|| (self.tint[at], light as f64))
     }
 }
 
@@ -237,6 +365,8 @@ impl View {
 
 pub struct Spiral {
     particles: Vec<Particle>,
+    /// The picture the crowd is carrying, or nothing and it carries its own ink.
+    subject: Option<Subject>,
     mesh: usize,
     view: View,
     /// The lens, narrowed to magnify.
@@ -277,8 +407,19 @@ impl Spiral {
             let walked = (phase + particle.offset).rem_euclid(1.0);
             for copy in 0..COPIES {
                 let along = (copy as f64 + walked) / COPIES as f64;
-                let (point, size) = particle.at(along, phase);
-                raster.dot(self.view.sees(point), size, self.ink, 1.0);
+                let ((x, y), size) = particle.at(along);
+                // Where the picture is paper the crowd is paper: a particle
+                // standing off it, or on the dark of it, is not drawn at all.
+                let (tint, alpha) = match &self.subject {
+                    Some(subject) => match subject.at(x, y) {
+                        Some(carried) => carried,
+                        None => continue,
+                    },
+                    None => (self.ink, 1.0),
+                };
+                let mut point = surface(x, y, phase);
+                point.z += RIDE;
+                raster.dot(self.view.sees(point), size, tint, alpha);
             }
         }
 
@@ -318,10 +459,36 @@ fn assemble(params: &Params) -> Result<Spiral, String> {
         return Err("--zoom is how much the lens magnifies, so it has to be positive".into());
     }
 
+    let ink = tint(colour("ink", export::INK)?);
+    // Read whether or not there turns out to be anything to read, so a line that
+    // asks for a contrast the app cannot give is refused rather than quietly
+    // drawn without it.
+    let over = spread(params.f64("spread", 1.0)?);
+    let tones = Tones::from_params(params)?;
+    let colored = params.is_set("color");
+
+    // Anything the app can open is a subject here, and none is a subject too:
+    // without one the drift is drawn in its own ink, as it always was.
+    let laid = |picture: &RgbaImage| Subject::new(picture, over, tones, colored, ink);
+    let written = |text: &str| laid(&raster_of(&AsciiCanvas::from_text(text)));
+    let subject = match params.string("text") {
+        // `--text` carries a drawing inline, which is how the window offers a
+        // sample without a file whose path differs between dev and a bundle.
+        Some(inline) => Some(written(inline)),
+        None => match params.first_positional() {
+            Some(path) => Some(match &*open(path)? {
+                Source::Drawing(text) => written(text),
+                Source::Picture(picture) => laid(picture),
+            }),
+            None => None,
+        },
+    };
+
     Ok(Spiral {
         particles: (0..count(params.usize("count", 17_000)?))
             .map(|index| Particle::new(seed, index))
             .collect(),
+        subject,
         mesh: mesh(params.usize("mesh", 130)?),
         // The angles it was composed at. The plane is turned about its own
         // upright before it is tipped, so half a right angle of yaw puts a
@@ -331,7 +498,7 @@ fn assemble(params: &Params) -> Result<Spiral, String> {
             params.f64("pitch", 52.2)?.to_radians(),
         ),
         field: FIELD / zoom,
-        ink: tint(colour("ink", export::INK)?),
+        ink,
         paper: tint(colour("paper", export::PAPER)?),
         period: params.period()?,
         still: params.is_set("still"),
@@ -345,10 +512,15 @@ pub fn build(params: &Params) -> Result<Generator, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use image::Rgba;
 
     /// Small, because each of these renders whole pictures.
     const WIDE: u32 = 96;
     const TALL: u32 = 96;
+
+    /// A drawing with nothing in it but ink, so what a subject does to the crowd
+    /// is the only thing under test.
+    const BLOCK: &str = "@@@@@\n@@@@@\n@@@@@\n@@@@@\n@@@@@";
 
     fn made(flags: &[(&str, &str)]) -> Spiral {
         let mut params = Params::default();
@@ -460,6 +632,106 @@ mod tests {
         assert_eq!(mesh(0), 16);
         assert_eq!(mesh(130), 130);
         assert_eq!(mesh(9_999), 400);
+        assert_eq!(spread(0.0), 0.1);
+        assert_eq!(spread(1.0), 1.0);
+        assert_eq!(spread(90.0), 4.0);
+    }
+
+    const LIT: [u8; 4] = [255, 255, 255, 255];
+    const UNLIT: [u8; 4] = [0, 0, 0, 255];
+
+    fn painted(shade: impl Fn(u32, u32) -> [u8; 4]) -> RgbaImage {
+        RgbaImage::from_fn(32, 32, |x, y| Rgba(shade(x, y)))
+    }
+
+    /// The crowd with a picture on it, seen square on so the picture is where
+    /// the plane says it is rather than where the camera has swung it to.
+    fn carrying(picture: &RgbaImage, colored: bool) -> Spiral {
+        let mut spiral = made(&[("yaw", "0"), ("pitch", "0")]);
+        spiral.subject = Some(Subject::new(picture, 1.0, Tones::PLAIN, colored, spiral.ink));
+        spiral
+    }
+
+    /// What the crowd is for once it has a picture: it is the picture. A
+    /// particle over paper draws nothing, so paper all through leaves the frame
+    /// with the plane on it and nothing else.
+    #[test]
+    fn a_subject_of_paper_leaves_the_crowd_nothing_to_show() {
+        let dark = carrying(&painted(|_, _| UNLIT), false).picture(WIDE, TALL, 0.2);
+        assert_eq!(drawn(&dark), 0);
+
+        let light = carrying(&painted(|_, _| LIT), false).picture(WIDE, TALL, 0.2);
+        assert!(drawn(&light) > 100, "only {} pixels were lit", drawn(&light));
+    }
+
+    /// Which way up and which way round it lies. A sign read the wrong way here
+    /// is a piece printed mirrored or upside down, and neither is something the
+    /// piece itself would ever look wrong enough to give away.
+    #[test]
+    fn a_subject_lies_on_the_plane_the_way_it_was_written() {
+        let middle = |picture: &RgbaImage| {
+            let lit: Vec<(f64, f64)> = picture
+                .enumerate_pixels()
+                .filter(|(_, _, pixel)| pixel.0[0] > 24)
+                .map(|(x, y, _)| (x as f64, y as f64))
+                .collect();
+            assert!(!lit.is_empty(), "nothing was drawn to take the middle of");
+            let count = lit.len() as f64;
+            (
+                lit.iter().map(|at| at.0).sum::<f64>() / count,
+                lit.iter().map(|at| at.1).sum::<f64>() / count,
+            )
+        };
+        let half = |keep: fn(u32, u32) -> bool| {
+            let picture = painted(|x, y| if keep(x, y) { LIT } else { UNLIT });
+            middle(&carrying(&picture, false).picture(WIDE, TALL, 0.2))
+        };
+
+        let (left, right) = (half(|x, _| x < 16), half(|x, _| x >= 16));
+        assert!(left.0 < right.0, "{} against {}", left.0, right.0);
+
+        let (top, bottom) = (half(|_, y| y < 16), half(|_, y| y >= 16));
+        assert!(top.1 < bottom.1, "{} against {}", top.1, bottom.1);
+    }
+
+    /// Asked for the picture's colours, the crowd takes them. Left alone it
+    /// keeps its own ink, whatever the picture was painted in.
+    #[test]
+    fn the_crowd_takes_its_colour_from_the_picture_when_it_is_asked_to() {
+        // Pixels the red end of the picture has plainly reached, which the ink
+        // is grey enough that nothing it draws can ever be.
+        let reddened = |picture: &RgbaImage| {
+            picture.pixels().filter(|pixel| pixel.0[0] > pixel.0[2] + 24).count()
+        };
+        let red = painted(|_, _| [255, 40, 40, 255]);
+
+        let plain = carrying(&red, false).picture(WIDE, TALL, 0.2);
+        assert_eq!(reddened(&plain), 0);
+
+        let colored = carrying(&red, true).picture(WIDE, TALL, 0.2);
+        assert!(reddened(&colored) > 20, "only {} pixels came out red", reddened(&colored));
+    }
+
+    /// The picture is carried rather than pulled along: it is read where a
+    /// particle stands, so it is as periodic as the crowd is and the loop it
+    /// closes is the same one.
+    #[test]
+    fn a_period_leaves_a_carried_picture_where_it_found_it() {
+        let checks = painted(|x, y| if (x / 4 + y / 4) % 2 == 0 { LIT } else { UNLIT });
+        let spiral = carrying(&checks, false);
+        let start = spiral.picture(WIDE, TALL, 0.0);
+        let round = spiral.picture(WIDE, TALL, 1.0);
+        assert_eq!(apart(&start, &round), 0);
+    }
+
+    /// A drawing arrives the same way a picture does, and the spread is how much
+    /// of the drift is standing on it.
+    #[test]
+    fn a_tighter_spread_lays_the_subject_over_less_of_the_drift() {
+        let whole = drawn(&made(&[("text", BLOCK)]).picture(WIDE, TALL, 0.2));
+        let tight = drawn(&made(&[("text", BLOCK), ("spread", "0.4")]).picture(WIDE, TALL, 0.2));
+        assert!(tight > 0, "the drawing was lost altogether");
+        assert!(tight < whole, "{tight} lit against {whole} laid over the whole disc");
     }
 
     #[test]
