@@ -289,6 +289,10 @@ export const TOOLS: Tool[] = [
           // None of them is the wave that does not travel out at all, which with
           // no arms either is the whole disc breathing in one.
           { kind: "range", flag: "rings", label: "Ripples", min: 0, max: 20, step: 1, value: 8 },
+          // How tall those repeats stand. None of it is a flat disc, which is
+          // the one setting where nothing is hidden behind anything — the whole
+          // reason this tool draws pixels rather than characters.
+          { kind: "range", flag: "swell", label: "Swell", min: 0, max: 0.2, step: 0.01, value: 0.05 },
         ],
       },
       {

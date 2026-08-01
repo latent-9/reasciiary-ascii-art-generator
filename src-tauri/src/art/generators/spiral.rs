@@ -76,7 +76,10 @@ const REACH: f64 = 1.05;
 /// the horizon lies across the centre and half the frame is empty sky.
 const LIFT: f64 = 0.09;
 
-/// How tall the wave stands where the plane is one unit out, in frames.
+/// How tall the wave stands where the plane is one unit out, in frames, as it
+/// was composed.
+///
+/// Where it opens rather than the whole of what it can be. See [`swell`].
 const SWELL: f64 = 1.0 / 20.0;
 
 /// How much of that is left standing once a picture is laid on the disc.
@@ -239,6 +242,22 @@ fn mesh(given: usize) -> usize {
 /// surface carrying it is drawn as a shudder rather than as a wave.
 fn rings(given: f64) -> f64 {
     given.clamp(0.0, 20.0)
+}
+
+/// How tall the wave stands, in frames at one unit out.
+///
+/// None of it is a plane with no wave in it, which leaves the crowd crawling out
+/// over a flat disc and is the one setting where nothing at all is hidden behind
+/// anything. The ceiling is four times what the piece was composed at, which
+/// carries the plane about a frame's width toward the eye and away again: past
+/// that the crests stand taller than the disc is wide and what is drawn is the
+/// inside of a swell rather than a piece with swells in it.
+///
+/// A picture laid on the disc still settles it — see [`SETTLED`]. This is the
+/// height before that is taken off, not after, so the flag means the same thing
+/// whether or not a file is open.
+fn swell(given: f64) -> f64 {
+    given.clamp(0.0, 4.0 * SWELL)
 }
 
 /// How many arms the crest winds into, and which way round it winds.
@@ -843,7 +862,7 @@ fn assemble(params: &Params) -> Result<Spiral, String> {
         subject: None,
         winding: None,
         windings: windings(params.usize("windings", 110)?),
-        swell: SWELL,
+        swell: swell(params.f64("swell", SWELL)?),
         wave: Wave {
             rings: rings(params.f64("rings", RINGS)?),
             arms: arms(params.f64("arms", ARMS)?),
@@ -1415,6 +1434,28 @@ mod tests {
         let under = swing(&made(&[("text", BLOCK)]));
         assert!(under > 0.0, "the wave went flat under a picture rather than settling");
         assert!(under * 2.0 < bare, "{under} against {bare} with nothing laid on the disc");
+    }
+
+    /// How tall the wave stands is asked for, and the settling a picture does is
+    /// taken off whatever was asked — so the flag means the same thing with a
+    /// file open as without one, and none of it is a flat disc.
+    #[test]
+    fn a_wave_stands_as_tall_as_it_is_asked_to() {
+        let swing = |spiral: &Spiral| {
+            let over: Vec<f64> = (0..64)
+                .map(|step| spiral.wave.at(0.3, 0.0, step as f64 / 64.0, spiral.swell).z)
+                .collect();
+            over.iter().cloned().fold(f64::MIN, f64::max)
+                - over.iter().cloned().fold(f64::MAX, f64::min)
+        };
+        let composed = swing(&made(&[]));
+        let taller = swing(&made(&[("swell", "0.2")]));
+        assert!(taller > composed * 3.0, "{taller} against {composed}");
+        assert_eq!(swing(&made(&[("swell", "0")])), 0.0);
+        // Held to the same ceiling from either side of a picture being laid.
+        let settled = swing(&made(&[("swell", "99"), ("text", BLOCK)]));
+        let unsettled = swing(&made(&[("swell", "99")]));
+        assert!(settled > 0.0 && settled < unsettled, "{settled} against {unsettled}");
     }
 
     #[test]

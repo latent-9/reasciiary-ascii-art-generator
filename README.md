@@ -459,6 +459,7 @@ And its own on top:
 | | `--spin` | turns the line makes over a loop; `0` holds it still | `1` |
 | | `--rings` | times the wave repeats between the middle and the rim | `8` |
 | | `--arms` | arms it winds them into; `0` is rings, below it winds back | `1` |
+| | `--swell` | how tall the wave stands; `0` is a flat disc | `0.05` |
 | | `--bare` | the drift on its own, with nothing laid under it | off |
 | | `--count` | particles in the drift | `17000` |
 | | `--mesh` | quads a side the plane is cut into | `130` |
