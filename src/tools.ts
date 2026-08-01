@@ -275,9 +275,10 @@ export const TOOLS: Tool[] = [
       {
         // What the piece is, rather than what is laid on it. The wave is one
         // sine held back by how far out a point lies and by which way round it
-        // lies, and these two are how much of each — which between them are the
-        // difference between a spiral, a set of rings growing out of the middle,
-        // and a disc that lifts all at once.
+        // lies, and the first two are how much of each — which between them are
+        // the difference between a spiral, a set of rings growing out of the
+        // middle, and a disc that lifts all at once. The last two are how tall
+        // any of that stands, and what it is standing on.
         title: "Wave",
         controls: [
           // Whole numbers, and not for tidiness: the second delay is read off an
@@ -293,6 +294,16 @@ export const TOOLS: Tool[] = [
           // the one setting where nothing is hidden behind anything — the whole
           // reason this tool draws pixels rather than characters.
           { kind: "range", flag: "swell", label: "Swell", min: 0, max: 0.2, step: 0.01, value: 0.05 },
+          // What the wave is running over. None of it is the flat disc the
+          // piece was composed on; a whole one is a half-sphere, and the crowd
+          // stacks against its edge into a bright rim rather than spreading
+          // over its face. Below none is the same shape looked into.
+          //
+          // A dome stands as tall as the disc is wide, so most of the range
+          // wants tilting down and pulling back to see — the View sliders are
+          // three rows below, which is why this is worth stepping finely
+          // rather than offered as a switch between flat and domed.
+          { kind: "range", flag: "dome", label: "Dome", min: -1, max: 1, step: 0.05, value: 0 },
         ],
       },
       {
