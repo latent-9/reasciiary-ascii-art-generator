@@ -195,8 +195,15 @@ is how many arms it winds them into. One arm is the piece as it was composed; si
 is a rosette, none is rings growing out of the middle rather than a spiral, and
 below none it winds the other way. Whole numbers, and not for tidiness — the
 second delay is read off an angle, and an angle wraps, so anything else leaves a
-crease running out of the middle of every frame. What stands over the plane is
-drawn one of two ways, and which one depends on whether a file was opened.
+crease running out of the middle of every frame. The disc all of that runs over
+is flat as the piece was composed and need not be: `--dome` lifts it, a whole one
+into a half-sphere with the wave still running over whatever shape it has been
+left. What the marks do then is stack against its edge into a bright rim rather
+than spread over its face — a hemisphere is steepest where it meets its own rim
+and level at the top, so an even scatter over it lands unevenly on the frame.
+Below none it is a bowl, the same shape looked into rather than at. What stands
+over the plane is drawn one of two ways, and which one depends on whether a file
+was opened.
 
 With nothing laid on the disc it is a drift: seventeen thousand particles, each
 on its own fixed ray, crawling out from the middle a little above the surface and
@@ -460,6 +467,7 @@ And its own on top:
 | | `--rings` | times the wave repeats between the middle and the rim | `8` |
 | | `--arms` | arms it winds them into; `0` is rings, below it winds back | `1` |
 | | `--swell` | how tall the wave stands; `0` is a flat disc | `0.05` |
+| | `--dome` | how far the disc is lifted; `1` is a half-sphere, below none a bowl | `0` |
 | | `--bare` | the drift on its own, with nothing laid under it | off |
 | | `--count` | particles in the drift | `17000` |
 | | `--mesh` | quads a side the plane is cut into | `130` |
