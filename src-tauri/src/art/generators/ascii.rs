@@ -14,11 +14,9 @@
 //! everything past that point cannot tell which one it was handed.
 
 use std::f64::consts::TAU;
-use std::sync::{Arc, Mutex};
-use std::time::SystemTime;
 
 use image::imageops::{resize, FilterType};
-use image::{ImageReader, RgbaImage};
+use image::RgbaImage;
 use rayon::prelude::*;
 
 use crate::art::canvas::{ink_coverage, AsciiCanvas, AsciiRamp, CELL_ASPECT};
@@ -26,7 +24,7 @@ use crate::art::generator::{Generator, GlyphGenerator};
 use crate::art::glyphs::{ALPHABET, CELL_PIXELS, CELL_PIXELS_TALL, CELL_PIXELS_WIDE};
 use crate::art::motion::Movement;
 use crate::art::params::Params;
-use crate::art::read::{is_drawing, Tones};
+use crate::art::read::{open, Source, Tones};
 
 #[derive(Clone, Copy, Debug)]
 pub struct Vector3 {
@@ -1325,70 +1323,6 @@ impl GlyphGenerator for Turning {
     }
 }
 
-/// What a change to the source on disk would move.
-type Stamp = (u64, Option<SystemTime>);
-
-/// A file as it came off the disk, before anything has been made of it.
-enum Source {
-    Drawing(String),
-    Picture(RgbaImage),
-}
-
-struct Cached {
-    path: String,
-    stamp: Stamp,
-    source: Arc<Source>,
-}
-
-/// The file most recently read.
-///
-/// The window rebuilds this generator from scratch on every preview frame, so
-/// dragging a slider used to re-read the file off disk a dozen times a second
-/// for a drawing that had not changed — and a picture has to be decoded as well
-/// as read, which is the expensive half. One entry is all that is wanted: the
-/// window shows one source at a time. Keyed on the file's length and
-/// modification time rather than held forever, so editing the drawing in
-/// another window still shows up in the preview.
-///
-/// What is kept is the file rather than the levels taken off it, because the
-/// levels depend on the panel as well as on the disk: contrast and relief move
-/// while the file does not, and re-reading a decoded picture for them is
-/// nothing next to decoding it again.
-static LAST_READ: Mutex<Option<Cached>> = Mutex::new(None);
-
-fn read_source(path: &str) -> Result<Arc<Source>, String> {
-    let stamp: Stamp = std::fs::metadata(path)
-        .map(|data| (data.len(), data.modified().ok()))
-        .map_err(|error| format!("cannot read `{path}`: {error}"))?;
-
-    // A panic while the lock was held would have left it poisoned; the cache is
-    // only ever a copy of a file, so there is nothing to protect by refusing.
-    let mut cache = LAST_READ.lock().unwrap_or_else(|error| error.into_inner());
-    if let Some(cached) = cache.as_ref() {
-        if cached.path == path && cached.stamp == stamp {
-            return Ok(Arc::clone(&cached.source));
-        }
-    }
-
-    let source = Arc::new(if is_drawing(path) {
-        Source::Drawing(
-            std::fs::read_to_string(path)
-                .map_err(|error| format!("cannot read `{path}`: {error}"))?,
-        )
-    } else {
-        let picture = ImageReader::open(path)
-            .map_err(|error| format!("cannot read `{path}`: {error}"))?
-            .with_guessed_format()
-            .map_err(|error| format!("cannot read `{path}`: {error}"))?
-            .decode()
-            .map_err(|error| format!("`{path}` is not a picture this can read: {error}"))?;
-        Source::Picture(picture.to_rgba8())
-    });
-
-    *cache = Some(Cached { path: path.to_string(), stamp, source: Arc::clone(&source) });
-    Ok(source)
-}
-
 /// Defaults match the Swift CLI (`asciiary +3d`), not the GUI sliders — the two
 /// disagreed in the original and the CLI is the one this command line inherits.
 pub fn build(params: &Params) -> Result<Generator, String> {
@@ -1405,7 +1339,7 @@ pub fn build(params: &Params) -> Result<Generator, String> {
             let path = params
                 .first_positional()
                 .ok_or("ascii needs a drawing or a picture to lift")?;
-            match &*read_source(path)? {
+            match &*open(path)? {
                 Source::Drawing(text) => Field::from_text(text, tones),
                 Source::Picture(image) => Field::from_picture(image, across, tones),
             }
@@ -1862,39 +1796,6 @@ mod tests {
                 assert!(tallest <= reach + 1e-9, "{motion:?} raised {tallest} past {reach}");
             }
         }
-    }
-
-    fn drawing(path: &str) -> String {
-        match &*read_source(path).expect("the file reads") {
-            Source::Drawing(text) => text.clone(),
-            Source::Picture(_) => panic!("a drawing came back as a picture"),
-        }
-    }
-
-    /// The cache is what stops the preview from going back to disk, so the risk
-    /// it carries is the opposite one: a drawing edited in another window still
-    /// showing its old shape until the app is restarted.
-    #[test]
-    fn an_edited_drawing_is_read_again() {
-        let path = std::env::temp_dir().join(format!("asciiary-{}.txt", std::process::id()));
-        let path = path.to_str().expect("temp path is utf-8");
-
-        std::fs::write(path, "@@@\n").expect("first write");
-        assert_eq!(drawing(path), "@@@\n");
-        assert_eq!(drawing(path), "@@@\n");
-
-        std::fs::write(path, "...\n..\n").expect("second write");
-        assert_eq!(drawing(path), "...\n..\n");
-
-        std::fs::remove_file(path).expect("cleanup");
-    }
-
-    #[test]
-    fn a_missing_drawing_says_so() {
-        let error = read_source("/nowhere/at/all.txt")
-            .err()
-            .expect("no such file");
-        assert!(error.contains("cannot read"), "unhelpful message: {error}");
     }
 
     /// Light on the left, dark on the right, and a shape that is not square —

@@ -11,10 +11,16 @@
 //! and every cell is matched by its whole patch, the way the 3D lift's cells
 //! are. That is the difference between a picture read back as glyphs and one
 //! averaged into a ramp, and at this size it is not a small one.
+//!
+//! Opening the file is here too — see [`open`]. Reading a subject back is what
+//! this module is for, and which of the two kinds of file a path names is the
+//! first thing anyone reading one has to ask.
 
 use std::path::Path;
+use std::sync::{Arc, Mutex};
+use std::time::SystemTime;
 
-use image::{Rgba, RgbaImage};
+use image::{ImageReader, Rgba, RgbaImage};
 
 use super::canvas::{AsciiCanvas, AsciiColor, AsciiRamp};
 use super::glyphs::{ALPHABET, CELL_PIXELS, CELL_PIXELS_TALL, CELL_PIXELS_WIDE};
@@ -251,11 +257,114 @@ pub fn raster_of(canvas: &AsciiCanvas) -> RgbaImage {
     fine
 }
 
+/// What a change to the source on disk would move.
+type Stamp = (u64, Option<SystemTime>);
+
+/// A file as it came off the disk, before anything has been made of it.
+pub enum Source {
+    Drawing(String),
+    Picture(RgbaImage),
+}
+
+struct Cached {
+    path: String,
+    stamp: Stamp,
+    source: Arc<Source>,
+}
+
+/// The file most recently read.
+///
+/// The window rebuilds a generator from scratch on every preview frame, so
+/// dragging a slider used to re-read the file off disk a dozen times a second
+/// for a drawing that had not changed — and a picture has to be decoded as well
+/// as read, which is the expensive half. One entry is all that is wanted: the
+/// window shows one source at a time. Keyed on the file's length and
+/// modification time rather than held forever, so editing the drawing in
+/// another window still shows up in the preview.
+///
+/// What is kept is the file rather than anything made of it, because what is
+/// made of it depends on the panel as well as on the disk: contrast and detail
+/// move while the file does not, and re-reading a decoded picture for them is
+/// nothing next to decoding it again.
+static LAST_READ: Mutex<Option<Cached>> = Mutex::new(None);
+
+/// A file as whichever of the two things it is.
+///
+/// Here rather than in the tool that first wanted it because every tool that
+/// takes a subject wants exactly this, and there is one cache: two tools reading
+/// the same file are two tools showing the same drawing, and the second of them
+/// should not pay to decode it again.
+pub fn open(path: &str) -> Result<Arc<Source>, String> {
+    let stamp: Stamp = std::fs::metadata(path)
+        .map(|data| (data.len(), data.modified().ok()))
+        .map_err(|error| format!("cannot read `{path}`: {error}"))?;
+
+    // A panic while the lock was held would have left it poisoned; the cache is
+    // only ever a copy of a file, so there is nothing to protect by refusing.
+    let mut cache = LAST_READ.lock().unwrap_or_else(|error| error.into_inner());
+    if let Some(cached) = cache.as_ref() {
+        if cached.path == path && cached.stamp == stamp {
+            return Ok(Arc::clone(&cached.source));
+        }
+    }
+
+    let source = Arc::new(if is_drawing(path) {
+        Source::Drawing(
+            std::fs::read_to_string(path)
+                .map_err(|error| format!("cannot read `{path}`: {error}"))?,
+        )
+    } else {
+        let picture = ImageReader::open(path)
+            .map_err(|error| format!("cannot read `{path}`: {error}"))?
+            .with_guessed_format()
+            .map_err(|error| format!("cannot read `{path}`: {error}"))?
+            .decode()
+            .map_err(|error| format!("`{path}` is not a picture this can read: {error}"))?;
+        Source::Picture(picture.to_rgba8())
+    });
+
+    *cache = Some(Cached { path: path.to_string(), stamp, source: Arc::clone(&source) });
+    Ok(source)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::art::canvas::{ink_coverage, SPACE};
     use image::Rgba;
+
+    fn drawing(path: &str) -> String {
+        match &*open(path).expect("the file reads") {
+            Source::Drawing(text) => text.clone(),
+            Source::Picture(_) => panic!("a drawing came back as a picture"),
+        }
+    }
+
+    /// The cache is what stops the preview from going back to disk, so the risk
+    /// it carries is the opposite one: a drawing edited in another window still
+    /// showing its old shape until the app is restarted.
+    #[test]
+    fn an_edited_drawing_is_read_again() {
+        let path = std::env::temp_dir().join(format!("asciiary-{}.txt", std::process::id()));
+        let path = path.to_str().expect("temp path is utf-8");
+
+        std::fs::write(path, "@@@\n").expect("first write");
+        assert_eq!(drawing(path), "@@@\n");
+        assert_eq!(drawing(path), "@@@\n");
+
+        std::fs::write(path, "...\n..\n").expect("second write");
+        assert_eq!(drawing(path), "...\n..\n");
+
+        std::fs::remove_file(path).expect("cleanup");
+    }
+
+    #[test]
+    fn a_missing_drawing_says_so() {
+        let error = open("/nowhere/at/all.txt")
+            .err()
+            .expect("no such file");
+        assert!(error.contains("cannot read"), "unhelpful message: {error}");
+    }
 
     /// Light in, marks out — and dark in, nothing out, which is the part a
     /// matcher with no space in it cannot answer for itself.
