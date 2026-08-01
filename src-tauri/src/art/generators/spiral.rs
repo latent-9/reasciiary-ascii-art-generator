@@ -19,11 +19,12 @@
 //! would be a lit relief with some dust on it — a different picture.
 //!
 //! A drawing or a photograph can be laid on the disc the drift covers, and then
-//! the crowd is what shows it: a particle takes the light it is standing over,
-//! and one standing over the picture's paper is not drawn at all. The picture
-//! holds still while the crowd walks out through it, so what arrives is not the
-//! picture but the picture being carried — thinning where it is dark, riding the
-//! swell where the wave is under it. See [`Subject`].
+//! the crowd is what shows it: a particle takes the light it is standing over as
+//! the size of its mark, the way a halftone takes a tone, and one standing over
+//! the picture's paper is not drawn at all. The picture holds still while the
+//! crowd walks out through it, so what arrives is not the picture but the
+//! picture being carried — thinning where it is dark, riding the swell where the
+//! wave is under it. See [`Subject`].
 //!
 //! Every length here is a fraction of the frame's height, so the same numbers
 //! compose the preview and the poster. The eye stands at the distance where

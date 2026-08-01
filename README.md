@@ -193,8 +193,12 @@ crowd is seventeen thousand particles, each on its own fixed ray, crawling out
 from the middle a little above the surface and rising and falling with it.
 
 A drawing or a picture can be laid on the disc the crowd walks out across, and
-then the crowd is what shows it: a particle takes the light it is standing over,
-and one standing over the picture's paper is not drawn at all. It is read where
+then the crowd is what shows it: a particle takes the light it is standing over
+as the size of its mark, the way every halftone ever printed takes a tone, and
+one standing over the picture's paper is not drawn at all. Sizing the mark is
+what makes a photograph arrive at all — a photograph is lit nearly everywhere,
+so drawing the marks faintly instead would leave the whole crowd standing and
+merely grey it, and a greyed crowd is the crowd. It is read where
 the particle stands rather than where the ray it rides set off, which is the
 whole of the difference — read from the start of the ray, every point of the
 picture would be smeared out along it. Read from under the particle, the picture
