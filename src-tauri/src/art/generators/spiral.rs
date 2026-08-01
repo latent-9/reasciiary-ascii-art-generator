@@ -306,8 +306,8 @@ impl Subject {
     }
 
     /// What the picture shows at this point of the plane: what a particle
-    /// standing there is drawn in, and how strongly. Nothing off the picture,
-    /// and nothing on its paper.
+    /// standing there is drawn in, and how much light it is standing in.
+    /// Nothing off the picture, and nothing on its paper.
     fn at(&self, x: f64, y: f64) -> Option<([f32; 3], f64)> {
         // A picture counts its rows down from the top, and so does the plane:
         // its y runs away from the eye, and away from the eye is down the
@@ -410,16 +410,25 @@ impl Spiral {
                 let ((x, y), size) = particle.at(along);
                 // Where the picture is paper the crowd is paper: a particle
                 // standing off it, or on the dark of it, is not drawn at all.
-                let (tint, alpha) = match &self.subject {
+                let (tint, size) = match &self.subject {
+                    // The light it stands in is taken as the area of the mark
+                    // rather than as how strongly the mark is drawn, which is
+                    // how every halftone ever printed reads a tone — and it is
+                    // the difference between a photograph arriving and not. A
+                    // photograph is lit nearly everywhere, so dimming leaves the
+                    // whole crowd standing and merely greys it, and a greyed
+                    // crowd on dark paper is the crowd. Half the light is half a
+                    // mark instead, and the far end of that is a dot too fine to
+                    // draw, which the raster fades out on its own.
                     Some(subject) => match subject.at(x, y) {
-                        Some(carried) => carried,
+                        Some((tint, light)) => (tint, size * light.sqrt()),
                         None => continue,
                     },
-                    None => (self.ink, 1.0),
+                    None => (self.ink, size),
                 };
                 let mut point = surface(x, y, phase);
                 point.z += RIDE;
-                raster.dot(self.view.sees(point), size, tint, alpha);
+                raster.dot(self.view.sees(point), size, tint, 1.0);
             }
         }
 
@@ -670,6 +679,18 @@ mod tests {
 
         let light = carrying(&painted(|_, _| LIT), false).picture(WIDE, TALL, 0.2);
         assert!(drawn(&light) > 100, "only {} pixels were lit", drawn(&light));
+    }
+
+    /// And how it shows anything between the two: with the size of the mark,
+    /// the way a halftone does. Drawing the mark faintly instead would leave
+    /// the whole crowd standing over a picture that is lit nearly everywhere —
+    /// which is every photograph — and a greyed crowd is the crowd.
+    #[test]
+    fn half_the_light_is_half_the_mark_rather_than_half_the_ink() {
+        let full = drawn(&carrying(&painted(|_, _| LIT), false).picture(WIDE, TALL, 0.2));
+        let half = drawn(&carrying(&painted(|_, _| [128, 128, 128, 255]), false).picture(WIDE, TALL, 0.2));
+        assert!(half > 0, "the crowd went out altogether");
+        assert!(half * 4 < full * 3, "{half} lit against {full} in the full of the light");
     }
 
     /// Which way up and which way round it lies. A sign read the wrong way here
