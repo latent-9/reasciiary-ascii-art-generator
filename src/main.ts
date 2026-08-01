@@ -63,6 +63,22 @@ type Session = {
 
 const sessions = new Map<string, Session>();
 
+/// The three numbers a camera holds, which are also three flags the backend
+/// reads.
+///
+/// A tool may offer them on the panel as well, and then the same three numbers
+/// have two handles on them: the drag and the slider. They are kept in the
+/// camera and nowhere else. A copy beside it in the panel's values would be a
+/// second answer to which way the thing is facing, and the two handles would
+/// spend their time disagreeing about it.
+const TURNS = ["yaw", "pitch", "zoom"] as const;
+
+type Turn = (typeof TURNS)[number];
+
+/// Whether a flag is one the tool on screen keeps in its camera.
+const turned = (flag: string): flag is Turn =>
+  state.tool.camera !== undefined && TURNS.some((turn) => turn === flag);
+
 function session(tool: Tool = state.tool): Session {
   const found = sessions.get(tool.name);
   if (found) return found;
@@ -70,6 +86,10 @@ function session(tool: Tool = state.tool): Session {
     values: defaults(tool.groups),
     camera: { ...(tool.camera ?? { yaw: 0, pitch: 0, zoom: 1 }) },
   };
+  // Whatever the table starts a camera slider at, the camera is where it is
+  // kept — see [TURNS]. The camera starts it too, so the row and the preview
+  // agree from the first frame without either being asked.
+  for (const turn of TURNS) delete fresh.values[turn];
   sessions.set(tool.name, fresh);
   return fresh;
 }
@@ -111,11 +131,20 @@ const number = (flag: string) => Number(read(flag));
 
 /// Which side of the panel a flag's value is kept on. Nothing at all is what a
 /// switch that is off reads as, so the answer can be missing.
+///
+/// A camera number is kept in a third place, the camera itself, because the
+/// preview writes to it as well — see [TURNS]. An angle always has a value, so
+/// that side of this never answers with nothing.
 function read(flag: string): string | undefined {
+  if (turned(flag)) return String(session().camera[flag]);
   return flag in state.output ? state.output[flag] : session().values[flag];
 }
 
 function write(flag: string, value: string | null) {
+  if (turned(flag)) {
+    if (value !== null) session().camera[flag] = Number(value);
+    return;
+  }
   const into = flag in state.output ? state.output : session().values;
   if (value === null) delete into[flag];
   else into[flag] = value;
