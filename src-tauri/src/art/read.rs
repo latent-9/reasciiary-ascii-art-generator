@@ -151,10 +151,20 @@ impl Tones {
 
     /// How much light a pixel carries, with those two applied.
     pub fn light(self, pixel: &[u8; 4]) -> f32 {
-        let [red, green, blue, alpha] = pixel.map(|channel| channel as f32 / 255.0);
-        // What the eye weighs each channel at, which is not what a mean does.
-        self.level(0.2126 * red + 0.7152 * green + 0.0722 * blue) * alpha
+        self.level(plain_light(pixel)) * pixel[3] as f32 / 255.0
     }
+}
+
+/// How much light a pixel carries before anything has been asked of it.
+///
+/// Split out because a tool that wants to weigh a picture against its own range
+/// has to see the range first, and by the time [`Tones`] has been through it the
+/// two ends have already been moved. Alpha is not in it for the same reason: it
+/// says how much of the pixel is there, not how bright it is.
+pub fn plain_light(pixel: &[u8; 4]) -> f32 {
+    let [red, green, blue, _] = pixel.map(|channel| channel as f32 / 255.0);
+    // What the eye weighs each channel at, which is not what a mean does.
+    0.2126 * red + 0.7152 * green + 0.0722 * blue
 }
 
 /// The choices a picture is read under.
