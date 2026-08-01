@@ -74,6 +74,23 @@ const LIFT: f64 = 0.09;
 /// How tall the wave stands where the plane is one unit out, in frames.
 const SWELL: f64 = 1.0 / 20.0;
 
+/// How much of that is left standing once a picture is laid on the disc.
+///
+/// A swell at its full height carries the plane about a quarter of a frame
+/// toward the eye and away again, eight times over between the middle and the
+/// rim. On a scatter that reads as depth, because a scatter has no shape to
+/// lose. On a drawing it reads as damage: the lens magnifies what is near it and
+/// shrinks what is far, so each swell drags the part of the picture standing on
+/// it outward and the next one hauls it back, and what arrives is the subject
+/// torn into eight rings of itself.
+///
+/// It is also bought for nothing at the angle a picture is looked at from. The
+/// tool opens nearly overhead when it is handed a file, and from overhead a
+/// swell hides nothing behind it and casts no profile — all it does there is the
+/// dragging. So the disc settles under a picture: enough wave left to see the
+/// line rise and fall over it, not enough to pull the drawing apart.
+const SETTLED: f64 = 0.25;
+
 /// How many times the wave repeats between the middle and the rim, and how far
 /// round it is dragged over a whole turn.
 ///
@@ -342,17 +359,23 @@ struct Point {
     z: f64,
 }
 
-/// The plane at `(x, y)` out from its middle, at this phase.
+/// The plane at `(x, y)` out from its middle, at this phase, swelling this much.
 ///
 /// The delay is what makes it a spiral: so many turns of the wave for the
 /// distance out, and one more for the way round. Both feed the same sine, so the
 /// crest is a curve that winds rather than a ring that grows.
-fn surface(x: f64, y: f64, phase: f64) -> Point {
+///
+/// The height is asked for rather than taken from [`SWELL`] because the plane
+/// stands lower under a picture — see [`SETTLED`] — and the marks and the plane
+/// they lie on have to agree about it. Told two different heights they would
+/// disagree by more than the marks ride above the plane, and half the piece
+/// would sink into a surface drawn in the paper's own colour and go out.
+fn surface(x: f64, y: f64, phase: f64, swell: f64) -> Point {
     let out = (x * x + y * y).sqrt();
     let delay = out * RINGS + TWIST * y.atan2(x) / TAU;
     // Taller further out, and by a root rather than in step, so the middle is
     // not a flat plate and the rim is not a wall.
-    let height = SWELL * out.sqrt();
+    let height = swell * out.sqrt();
     Point {
         x: x * REACH,
         y: y * REACH,
@@ -564,6 +587,8 @@ pub struct Spiral {
     /// How closely that line is wound, kept so a picture laid after the fact has
     /// something to be drawn at.
     windings: usize,
+    /// How tall the wave stands, which a picture settles — see [`SETTLED`].
+    swell: f64,
     mesh: usize,
     view: View,
     /// The lens, narrowed to magnify.
@@ -583,6 +608,7 @@ impl Spiral {
     fn lay(&mut self, subject: Subject) {
         self.winding = Some(Winding::new(self.windings));
         self.subject = Some(subject);
+        self.swell *= SETTLED;
     }
 
     /// The frame at a phase rather than at a time, which is what the tests and
@@ -598,7 +624,7 @@ impl Spiral {
         let step = 1.0 / self.mesh.max(1) as f64;
         let out = |count: usize| count as f64 * step - 0.5;
         let grid: Vec<Seen> = (0..side * side)
-            .map(|at| self.view.sees(surface(out(at % side), out(at / side), phase)))
+            .map(|at| self.view.sees(surface(out(at % side), out(at / side), phase, self.swell)))
             .collect();
 
         for across in 0..self.mesh {
@@ -640,7 +666,7 @@ impl Spiral {
             // reads a tone. Drawn faintly instead, a picture that is lit nearly
             // everywhere — which is every photograph — leaves every mark
             // standing and merely greys them, and a greyed line is the line.
-            let mut point = surface(x, y, phase);
+            let mut point = surface(x, y, phase, self.swell);
             point.z += RIDE;
             raster.dot(self.view.sees(point), winding.grain * light.sqrt(), tint, 1.0);
         }
@@ -653,7 +679,7 @@ impl Spiral {
             for copy in 0..COPIES {
                 let along = (copy as f64 + walked) / COPIES as f64;
                 let ((x, y), size) = particle.at(along);
-                let mut point = surface(x, y, phase);
+                let mut point = surface(x, y, phase, self.swell);
                 point.z += RIDE;
                 raster.dot(self.view.sees(point), size, self.ink, 1.0);
             }
@@ -747,6 +773,7 @@ fn assemble(params: &Params) -> Result<Spiral, String> {
         subject: None,
         winding: None,
         windings: windings(params.usize("windings", 110)?),
+        swell: SWELL,
         mesh: mesh(params.usize("mesh", 130)?),
         // The angles it was composed at. The plane is turned about its own
         // upright before it is tipped, so half a right angle of yaw puts a
@@ -847,8 +874,8 @@ mod tests {
     fn the_wave_has_no_step_where_the_angle_comes_round() {
         for phase in [0.0, 0.31, 0.68] {
             for out in [0.1, 0.4, 0.8] {
-                let above = surface(-out, 1e-9, phase).z;
-                let below = surface(-out, -1e-9, phase).z;
+                let above = surface(-out, 1e-9, phase, SWELL).z;
+                let below = surface(-out, -1e-9, phase, SWELL).z;
                 assert!((above - below).abs() < 1e-6, "{above} against {below} at {out}");
             }
         }
@@ -1190,6 +1217,23 @@ mod tests {
         let tight = drawn(&made(&[("text", BLOCK), ("spread", "0.4")]).picture(WIDE, TALL, 0.2));
         assert!(tight > 0, "the drawing was lost altogether");
         assert!(tight < whole, "{tight} lit against {whole} laid over the whole disc");
+    }
+
+    /// A swell at its full height is a lens dragging whatever stands on it out
+    /// and hauling it back, eight times over between the middle and the rim. A
+    /// scatter has no shape to lose to that and a drawing has, so the disc
+    /// settles under one — see [`SETTLED`].
+    #[test]
+    fn a_picture_stands_on_a_disc_that_swells_less_than_the_bare_one() {
+        let swing = |spiral: &Spiral| {
+            let over: Vec<f64> =
+                (0..64).map(|step| surface(0.3, 0.0, step as f64 / 64.0, spiral.swell).z).collect();
+            over.iter().cloned().fold(f64::MIN, f64::max) - over.iter().cloned().fold(f64::MAX, f64::min)
+        };
+        let bare = swing(&made(&[]));
+        let under = swing(&made(&[("text", BLOCK)]));
+        assert!(under > 0.0, "the wave went flat under a picture rather than settling");
+        assert!(under * 2.0 < bare, "{under} against {bare} with nothing laid on the disc");
     }
 
     #[test]
