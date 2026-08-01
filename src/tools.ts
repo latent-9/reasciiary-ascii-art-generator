@@ -219,10 +219,16 @@ export const TOOLS: Tool[] = [
     label: "Spiral",
     blurb: "A wave winding out from the middle under a drift of particles.",
     source: SUBJECT,
-    // Turned a corner toward the eye and tipped most of the way over, which is
-    // the pitch that leaves the near swells standing in front of the far ones.
-    // Flat on would be a target and edge on a line.
-    camera: { yaw: 45, pitch: 52, zoom: 1 },
+    // Nearly overhead, because in here the piece is carrying the file the window
+    // has open and a picture laid on the disc is only legible from above. The
+    // wave lifts a particle by a third of the disc's own radius, so from any
+    // real angle that lift drags what the crowd is holding across the frame —
+    // tipped over far enough to see the swells standing in front of each other,
+    // a photograph on the disc is a smear and a page of writing is nothing at
+    // all. The drift alone is a finer thing from up around fifty, and that is a
+    // drag away: what this settles is where a tab that has just been handed a
+    // file opens, and what a double-click puts back.
+    camera: { yaw: 0, pitch: 14, zoom: 1 },
     groups: [
       {
         title: "Subject",
