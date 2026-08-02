@@ -1,4 +1,4 @@
-# Asciiary
+# Reasciiary
 
 Six tools and one exporter. Five of them end in a grid of characters, lit, and
 written out as an MP4, a GIF, a PNG or more text. The sixth ends in pixels: the
@@ -421,7 +421,7 @@ The same pipeline, driven by a typed line. The whole line is one argument, quote
 — the `>` belongs to the command language rather than to the shell:
 
 ```sh
-cargo run --bin asciiary -- "ascii logo.txt --depth 12 --turns 3 > out.mp4"
+cargo run --bin reasciiary -- "ascii logo.txt --depth 12 --turns 3 > out.mp4"
 ```
 
 A line is a source, the filters it flows through, and where the result lands. The
