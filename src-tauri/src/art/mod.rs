@@ -38,7 +38,33 @@ pub struct Pipeline {
     pub output: PathBuf,
 }
 
+/// Refuses an output whose file name begins with `-`.
+///
+/// The animated formats hand this path to ffmpeg as its final argument, and
+/// ffmpeg reads its arguments positionally: a name like `-y.mp4` is taken for
+/// the overwrite flag, and a carefully chosen one could set encoder options
+/// rather than name a file. Nothing legitimate starts a file name with a dash,
+/// so the whole class is turned away before a renderer or a process is started —
+/// the still formats are held to the same rule so the message is the same
+/// wherever the name came from.
+fn reject_option_like_output(output: &std::path::Path) -> Result<(), String> {
+    let named_like_option = matches!(
+        output.file_name().and_then(|name| name.to_str()),
+        Some(name) if name.starts_with('-')
+    );
+    if named_like_option {
+        return Err(format!(
+            "output `{}` starts its name with `-`, which an encoder reads as an \
+             option rather than a file; rename it",
+            output.display()
+        ));
+    }
+    Ok(())
+}
+
 pub fn render(pipeline: &Pipeline, settings: &Settings) -> Result<PathBuf, String> {
+    reject_option_like_output(&pipeline.output)?;
+
     if settings.format == Format::Text {
         return write_text(pipeline, settings);
     }
@@ -344,5 +370,32 @@ mod tests {
     fn a_frame_of_something_that_never_loops_steps_by_the_rate() {
         let settings = Settings { format: Format::Png, frames_per_second: 25, ..Settings::default() };
         assert!((frame_step(&clock(), &settings) - 0.04).abs() < 1e-12);
+    }
+
+    /// A name whose first character is `-` is refused: ffmpeg takes its output
+    /// positionally, so `-y.mp4` would land as its overwrite flag and write no
+    /// file. A dash deeper in the path is part of a directory, not the name, so
+    /// the whole path still reads as one.
+    #[test]
+    fn an_output_named_like_an_option_is_refused() {
+        assert!(reject_option_like_output(std::path::Path::new("out.mp4")).is_ok());
+        assert!(reject_option_like_output(std::path::Path::new("/tmp/-odd/out.gif")).is_ok());
+
+        let error = reject_option_like_output(std::path::Path::new("-y.mp4")).unwrap_err();
+        assert!(error.contains("starts its name with `-`"), "{error}");
+    }
+
+    /// And the guard sits on the one path every format runs through, so it stops
+    /// an export before a frame is drawn or an encoder is spawned.
+    #[test]
+    fn render_turns_away_an_option_like_output() {
+        let pipeline = Pipeline {
+            generator: Generator::Pixel(Box::new(Clock)),
+            filters: Vec::new(),
+            output: PathBuf::from("-y.gif"),
+        };
+        let settings = Settings { format: Format::Gif, ..Settings::default() };
+        let error = render(&pipeline, &settings).unwrap_err();
+        assert!(error.contains("starts its name with `-`"), "{error}");
     }
 }
