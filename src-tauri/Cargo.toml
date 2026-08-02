@@ -1,12 +1,14 @@
 [package]
-name = "asciiary-tauri"
+name = "reasciiary-desktop"
 version = "0.1.0"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
-# Two binaries ship from here: the window and the `asciiary` command line.
+# Two binaries ship from here: the window and the `reasciiary` command line. The
+# short name belongs to the one that gets typed, so the window's takes a suffix —
+# a package named `reasciiary` would name its own binary that and collide.
 # Without this, `cargo run` (and so `tauri dev`) cannot pick one.
-default-run = "asciiary-tauri"
+default-run = "reasciiary-desktop"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -14,7 +16,7 @@ default-run = "asciiary-tauri"
 # The `_lib` suffix may seem redundant but it is necessary
 # to make the lib name unique and wouldn't conflict with the bin name.
 # This seems to be only an issue on Windows, see https://github.com/rust-lang/cargo/issues/8519
-name = "asciiary_tauri_lib"
+name = "reasciiary_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]

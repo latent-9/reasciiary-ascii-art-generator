@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    asciiary_tauri_lib::run()
+    reasciiary_lib::run()
 }

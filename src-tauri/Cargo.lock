@@ -110,27 +110,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "asciiary-tauri"
-version = "0.1.0"
-dependencies = [
- "base64 0.22.1",
- "fontdue",
- "gif",
- "image",
- "noise",
- "rand 0.10.2",
- "rayon",
- "serde",
- "serde_json",
- "tauri",
- "tauri-build",
- "tauri-plugin-dialog",
- "tauri-plugin-opener",
- "thiserror 2.0.19",
- "tiny-skia",
-]
-
-[[package]]
 name = "async-broadcast"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3351,6 +3330,27 @@ checksum = "22e18b0f0062d30d4230b2e85ff77fdfe4326feb054b9783a3460d8435c8ab91"
 dependencies = [
  "crossbeam-deque",
  "crossbeam-utils",
+]
+
+[[package]]
+name = "reasciiary-desktop"
+version = "0.1.0"
+dependencies = [
+ "base64 0.22.1",
+ "fontdue",
+ "gif",
+ "image",
+ "noise",
+ "rand 0.10.2",
+ "rayon",
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-build",
+ "tauri-plugin-dialog",
+ "tauri-plugin-opener",
+ "thiserror 2.0.19",
+ "tiny-skia",
 ]
 
 [[package]]

@@ -335,7 +335,7 @@ async fn render_art(request: Request) -> Result<String, String> {
     .await
 }
 
-/// The same pipeline driven by a typed line, for the `asciiary` command.
+/// The same pipeline driven by a typed line, for the `reasciiary` command.
 pub fn run_line(line: &str) -> Result<String, String> {
     let command = repl::parse(line)?;
     let (source, rest) = command.stages.split_first().ok_or("nothing to run")?;
