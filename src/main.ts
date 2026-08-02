@@ -14,9 +14,12 @@ import type { Camera, Control, Group, Tool } from "./tools";
 type Theme = { name: string; ink: string; paper: string };
 
 const THEMES: Theme[] = [
-  { name: "Ink", ink: "#0b0b0b", paper: "#f6f5f2" },
-  { name: "Paper", ink: "#fbfbfb", paper: "#080808" },
-  { name: "Bone", ink: "#f2e3bd", paper: "#0a0908" },
+  // Two neutral greys, no hue in either — a near-white ink on the same near-black
+  // the editor this app is built in sits on (VS Code's `#121314`), so the window
+  // reads as one more panel of that workspace rather than a coloured thing beside
+  // it. The light pair is the same relationship inverted for a bright room.
+  { name: "Dark", ink: "#e6e6e6", paper: "#121314" },
+  { name: "Light", ink: "#1a1b1c", paper: "#f5f5f5" },
 ];
 
 /// What the export writes, which is the same question whatever tool answered
