@@ -1852,7 +1852,7 @@ mod tests {
     /// test of the field alone can answer for.
     #[test]
     fn a_picture_on_disk_lifts_into_a_solid() {
-        let path = std::env::temp_dir().join(format!("asciiary-{}.png", std::process::id()));
+        let path = std::env::temp_dir().join(format!("reasciiary-{}.png", std::process::id()));
         gradient(240, 160).save(&path).expect("the picture writes");
         let path = path.to_str().expect("temp path is utf-8");
 

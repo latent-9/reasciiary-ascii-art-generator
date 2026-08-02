@@ -387,7 +387,7 @@ mod tests {
     /// showing its old shape until the app is restarted.
     #[test]
     fn an_edited_drawing_is_read_again() {
-        let path = std::env::temp_dir().join(format!("asciiary-{}.txt", std::process::id()));
+        let path = std::env::temp_dir().join(format!("reasciiary-{}.txt", std::process::id()));
         let path = path.to_str().expect("temp path is utf-8");
 
         std::fs::write(path, "@@@\n").expect("first write");

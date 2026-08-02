@@ -371,7 +371,7 @@ mod tests {
 
     #[test]
     fn a_picture_arrives_as_marks() {
-        let path = written("asciiary-gradient.png", &gradient(320, 160));
+        let path = written("reasciiary-gradient.png", &gradient(320, 160));
         let canvas = media(&path, &[]).canvas(60, 20, 0.0);
         let inked = canvas.glyphs.iter().filter(|&&glyph| glyph != SPACE).count();
         assert!(inked > 300, "only {inked} cells drawn");
@@ -381,7 +381,7 @@ mod tests {
     /// that draws it mirrored or upside down passes every count-based test.
     #[test]
     fn the_light_end_of_a_picture_is_the_heavy_end_of_the_drawing() {
-        let path = written("asciiary-gradient.png", &gradient(320, 160));
+        let path = written("reasciiary-gradient.png", &gradient(320, 160));
         let canvas = media(&path, &[("marks", "shades")]).canvas(60, 20, 0.0);
         let row = canvas.rows / 2;
         let ink = |column: usize| ink_coverage(canvas.get(column, row) as char);
@@ -397,7 +397,7 @@ mod tests {
     /// out to the edges, and the cells it does not reach stay empty.
     #[test]
     fn a_picture_that_does_not_fit_the_grid_keeps_its_shape() {
-        let path = written("asciiary-tall.png", &gradient(80, 320));
+        let path = written("reasciiary-tall.png", &gradient(80, 320));
         let canvas = media(&path, &[]).canvas(80, 24, 0.0);
         let drawn = |column: usize| {
             (0..canvas.rows).any(|row| canvas.get(column, row) != SPACE)
@@ -408,7 +408,7 @@ mod tests {
 
     #[test]
     fn a_still_has_no_loop() {
-        let path = written("asciiary-gradient.png", &gradient(320, 160));
+        let path = written("reasciiary-gradient.png", &gradient(320, 160));
         assert_eq!(media(&path, &[]).loop_duration(), None);
     }
 
