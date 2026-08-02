@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "asciiary-tauri",
+  "productName": "Reasciiary",
   "version": "0.1.0",
-  "identifier": "com.alf.asciiary-tauri",
+  "identifier": "com.alf.reasciiary",
   "build": {
     "beforeDevCommand": "bun run dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "withGlobalTauri": true,
     "windows": [
       {
-        "title": "Asciiary",
+        "title": "Reasciiary",
         "width": 1080,
         "height": 680,
         "minWidth": 860,
