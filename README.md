@@ -413,7 +413,7 @@ brew install ffmpeg
 
 It is looked for on the PATH first, then in the usual install prefixes — a
 bundled app inherits almost no PATH from Finder, so a copy under
-`/opt/homebrew/bin` is found without one. `ASCIIARY_FFMPEG` overrides both.
+`/opt/homebrew/bin` is found without one. `REASCIIARY_FFMPEG` overrides both.
 
 ## The command line
 

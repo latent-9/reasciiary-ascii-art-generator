@@ -28,13 +28,13 @@ const USUAL_PREFIXES: [&str; 4] = [
 /// the app worked in development an hour earlier. Looking where it actually
 /// lands costs four `stat` calls once per export.
 pub fn encoder() -> Result<PathBuf, String> {
-    if let Some(chosen) = std::env::var_os("ASCIIARY_FFMPEG") {
+    if let Some(chosen) = std::env::var_os("REASCIIARY_FFMPEG") {
         let path = PathBuf::from(chosen);
         return if path.is_file() {
             Ok(path)
         } else {
             Err(format!(
-                "ASCIIARY_FFMPEG points at `{}`, which is not a file",
+                "REASCIIARY_FFMPEG points at `{}`, which is not a file",
                 path.display()
             ))
         };
@@ -48,8 +48,8 @@ pub fn encoder() -> Result<PathBuf, String> {
         .find(|candidate| candidate.is_file())
         .ok_or_else(|| {
             "ffmpeg is needed to write a GIF or an MP4, and no copy was found. \
-             Install it with `brew install ffmpeg`, or set ASCIIARY_FFMPEG to \
-             one. PNG and TXT exports need nothing."
+             Install it with `brew install ffmpeg`, or set REASCIIARY_FFMPEG \
+             to one. PNG and TXT exports need nothing."
                 .into()
         })
 }
