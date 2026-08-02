@@ -24,6 +24,15 @@
     </header>
 
     <div class="app">
+      <!-- The options sit on the leading edge, the way the editor this lives
+           beside keeps its sidebar — the tool picker in the toolbar chooses
+           what is shown, and the panel below it is where that tool's controls
+           land, with the stage to its right. -->
+      <aside class="inspector">
+        <p class="blurb" id="blurb"></p>
+        <div class="options" id="options"></div>
+      </aside>
+
       <main class="stage">
         <!-- Both panes are here from the start, and a tool lands its frames in
              one or the other: characters in the `pre`, pixels on the `canvas`.
@@ -34,11 +43,6 @@
           <canvas id="picture" hidden></canvas>
         </div>
       </main>
-
-      <aside class="inspector">
-        <p class="blurb" id="blurb"></p>
-        <div class="options" id="options"></div>
-      </aside>
     </div>
 
     <footer class="statusbar">
