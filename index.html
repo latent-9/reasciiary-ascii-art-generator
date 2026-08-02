@@ -26,12 +26,12 @@
     <div class="app">
       <main class="stage">
         <!-- Both panes are here from the start, and a tool lands its frames in
-             one or the other: characters in the `pre`, pixels in the `img`.
+             one or the other: characters in the `pre`, pixels on the `canvas`.
              Which one is wanted is a fact about the tool, not about the markup,
              so the markup carries both and the script hides one. -->
         <div class="screen">
           <pre id="preview"></pre>
-          <img id="picture" alt="" hidden />
+          <canvas id="picture" hidden></canvas>
         </div>
       </main>
 

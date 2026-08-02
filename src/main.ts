@@ -42,7 +42,8 @@ const element = <T extends HTMLElement>(id: string) =>
   document.getElementById(id) as T;
 
 const preview = element<HTMLPreElement>("preview");
-const picture = element<HTMLImageElement>("picture");
+const picture = element<HTMLCanvasElement>("picture");
+const brush = picture.getContext("2d")!;
 const screen = document.querySelector<HTMLDivElement>(".screen")!;
 const status = element("status");
 const hint = element("hint");
@@ -364,6 +365,7 @@ async function pickTool(tool: Tool) {
       frames: [`open a ${tool.source?.label.toLowerCase()} to begin`],
       fps: 1,
       image: false,
+      bitmaps: [],
     };
     shown = -1;
     fitPreview();
@@ -371,8 +373,9 @@ async function pickTool(tool: Tool) {
   }
   // Nothing of the tool that was on screen a moment ago survives the switch,
   // however long the new one takes to arrive — including which pane it was in.
-  film = { frames: [], fps: 1, image: false };
-  show("", false);
+  film = { frames: [], fps: 1, image: false, bitmaps: [] };
+  shown = -1;
+  show(0);
   await settle();
 }
 
@@ -478,14 +481,24 @@ type Plan = {
   image: boolean;
 };
 
-/// One whole loop, already rendered. It carries the same answer the plan gave,
-/// so a film that arrives after the tool was changed cannot be played into the
-/// wrong pane.
-type Film = { frames: string[]; fps: number; image: boolean };
+/// One whole loop, as it comes across the bridge. It carries the same answer the
+/// plan gave, so a film that arrives after the tool was changed cannot be played
+/// into the wrong pane.
+type Reel = { frames: string[]; fps: number; image: boolean };
+
+/// The same loop once it is ready to play. A loop of pictures is decoded on
+/// arrival — see [decodeFrames] — so the animation clock only ever draws bitmaps
+/// already in hand; a loop of characters leaves the field empty.
+type Film = Reel & { bitmaps: HTMLImageElement[] };
 
 let plan: Plan = { period: null, loops: 1, seconds: 4, frame: null, grid: null, image: false };
-let film: Film = { frames: [], fps: 1, image: false };
+let film: Film = { frames: [], fps: 1, image: false, bitmaps: [] };
 let shown = -1;
+
+/// The pane's size in CSS pixels, kept from the observer that watches it rather
+/// than read off the element in the draw path, where measuring it would force a
+/// layout every frame. A picture is fitted against this.
+let view = { width: screen.clientWidth, height: screen.clientHeight };
 
 /// The backend call in flight, if there is one.
 ///
@@ -580,21 +593,68 @@ async function loadFilm() {
     status.className = "status";
     status.textContent = "drawing…";
   }
-  const call = ask<Film>("sequence", { request: request() });
+  const call = ask<Reel>("sequence", { request: request() });
   pending = call;
   try {
-    const frames = await call;
+    const reel = await call;
     if (mark !== subject) return;
-    film = frames;
+    // Decode the loop before it is handed to the clock. The guard is checked
+    // again after: the tool can change while the frames are decoding, the same
+    // way it can while they are rendering.
+    const bitmaps = reel.image ? await decodeFrames(reel.frames) : [];
+    if (mark !== subject) return;
+    film = { ...reel, bitmaps };
     shown = -1;
   } catch (error) {
     if (mark !== subject) return;
-    film = { frames: [String(error)], fps: 1, image: false };
+    film = { frames: [String(error)], fps: 1, image: false, bitmaps: [] };
     shown = -1;
   } finally {
     pending = null;
     if (status.textContent === "drawing…") status.textContent = "";
   }
+}
+
+/// Decodes a loop of picture frames before any of them is shown.
+///
+/// A frame arrives as a data URL, and a surface handed one to decode blanks
+/// itself while it works — at the rate the spiral plays, that reads as a
+/// flicker. The whole loop is already in hand by the time it is here, so the
+/// decode is paid for once, off screen, rather than a frame at a time in the
+/// pane. A frame that will not decode is still returned; drawing it is a no-op
+/// rather than a rejection that would drop the loop it was part of.
+function decodeFrames(frames: string[]): Promise<HTMLImageElement[]> {
+  return Promise.all(
+    frames.map((url) => {
+      const image = new Image();
+      image.src = url;
+      return image.decode().then(
+        () => image,
+        () => image,
+      );
+    }),
+  );
+}
+
+/// Draws one decoded frame onto the canvas, fitted the way the stylesheet used
+/// to fit the picture: contained in the pane, centred, its own shape kept.
+///
+/// The backing store is sized to the pane in device pixels so the drawing is as
+/// sharp as the screen it is on, and only resized when the pane's has changed —
+/// setting either dimension clears the canvas, which mid-loop would be a flash
+/// of its own.
+function draw(frame: HTMLImageElement) {
+  const ratio = window.devicePixelRatio || 1;
+  const width = Math.max(1, Math.round(view.width * ratio));
+  const height = Math.max(1, Math.round(view.height * ratio));
+  if (picture.width !== width) picture.width = width;
+  if (picture.height !== height) picture.height = height;
+  brush.clearRect(0, 0, width, height);
+  const frameWidth = frame.naturalWidth || width;
+  const frameHeight = frame.naturalHeight || height;
+  const scale = Math.min(width / frameWidth, height / frameHeight);
+  const drawn = { width: frameWidth * scale, height: frameHeight * scale };
+  brush.drawImage(frame, (width - drawn.width) / 2, (height - drawn.height) / 2, drawn.width, drawn.height);
 }
 
 /// Plays the loop off the animation clock.
@@ -618,23 +678,27 @@ function play(now: number) {
       : Math.floor((now / 1000) * fps) % frames.length;
   if (index === shown) return;
   shown = index;
-  show(frames[index], film.image);
+  show(index);
 }
 requestAnimationFrame(play);
 
 /// Puts a frame in whichever of the two panes it belongs in, and takes the other
 /// one off the screen.
 ///
-/// One or the other, never both: a picture arrives as a data URL, which laid out
-/// in the text pane is a hundred kilobytes of gibberish, and a text frame set as
-/// a picture's source is a broken-image mark. Every message that has something
-/// to show says which kind it is, so the pane is chosen here rather than guessed
-/// at from the string.
-function show(frame: string, image: boolean) {
+/// One or the other, never both: a picture is a decoded bitmap, which the text
+/// pane has no way to lay out, and a text frame drawn to the canvas is nothing.
+/// Every film says which kind it is, so the pane is chosen from that rather than
+/// guessed at from the frame.
+function show(index: number) {
+  const image = film.image;
   picture.hidden = !image;
   preview.hidden = image;
-  if (image) picture.src = frame;
-  else preview.textContent = frame;
+  if (image) {
+    const frame = film.bitmaps[index];
+    if (frame) draw(frame);
+  } else {
+    preview.textContent = film.frames[index] ?? "";
+  }
 }
 
 /// One frame, now, for while the camera is being dragged.
@@ -650,10 +714,14 @@ async function showFrame() {
   try {
     const frame = await call;
     if (mark !== subject) return;
-    film = { frames: [frame], fps: 1, image: plan.image };
+    const bitmaps = plan.image ? await decodeFrames([frame]) : [];
+    if (mark !== subject) return;
+    film = { frames: [frame], fps: 1, image: plan.image, bitmaps };
     shown = -1;
   } catch (error) {
-    if (mark === subject) show(String(error), false);
+    if (mark !== subject) return;
+    film = { frames: [String(error)], fps: 1, image: false, bitmaps: [] };
+    shown = -1;
   } finally {
     pending = null;
   }
@@ -851,5 +919,13 @@ element<HTMLInputElement>("tint").addEventListener("input", (event) => {
   applyObject((event.target as HTMLInputElement).value);
 });
 applyTheme(THEMES[0]);
-new ResizeObserver(fitPreview).observe(screen);
+new ResizeObserver((entries) => {
+  const box = entries[0]?.contentRect;
+  if (box) view = { width: box.width, height: box.height };
+  fitPreview();
+  // A still picture does not tick, so nothing would otherwise redraw it at the
+  // new size — the loop that plays reaches the change on its next frame, but a
+  // single held frame has to be handed it here.
+  if (film.image && shown >= 0) show(shown);
+}).observe(screen);
 pickTool(state.tool);

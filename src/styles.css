@@ -288,10 +288,11 @@ button[hidden] {
   color: var(--object);
 }
 
-/* A picture takes the room there is, in the shape it came in. The text pane is
-   sized in type, a cell at a time, and none of that arithmetic means anything to
-   a frame that arrives already drawn — so it is handed the pane and `contain`
-   settles the rest.
+/* A picture takes the room there is. The canvas fills the pane and the frame is
+   drawn into it, contained and centred, by the script — a bitmap swapped a frame
+   at a time on the animation clock blanks an `<img>` mid-decode, which at the
+   rate the spiral plays reads as a flicker, so the loop is decoded up front and
+   painted here instead.
 
    The room, rather than a ceiling on it. A frame is drawn at whatever size is
    cheap enough to send a whole loop of, which is a fact about the renderer and
@@ -301,10 +302,6 @@ button[hidden] {
 #picture {
   width: 100%;
   height: 100%;
-  object-fit: contain;
-  /* Otherwise a drag across the pane picks the picture up and carries it, and
-     the camera behind it never sees the movement. */
-  -webkit-user-drag: none;
 }
 
 /* The options belong to whichever tool is chosen, so they are on the trailing
