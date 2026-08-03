@@ -192,6 +192,17 @@ button[hidden] {
   display: none;
 }
 
+/* The toolbar's own actions — Open and Render — take the block the tool
+   picker's segments have rather than a pill: the same rounded rectangle, on
+   the raised fill and soft lift its on-segment already wears, and without the
+   hairline a pill needed to stand off the bar. It leaves the whole toolbar
+   reading as one set of controls instead of two pills beside a segmented box.
+   Render keeps the accent fill so it stays the one action that is the point. */
+.chip {
+  border: none;
+  border-radius: 7px;
+}
+
 /* Both of a scheme's colours at once, split down the middle. One dot could only
    ever show half of what the button does. */
 .themes {
