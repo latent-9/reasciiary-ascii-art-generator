@@ -3,8 +3,15 @@ import { defineConfig } from "vite";
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
 
+// The desktop app loads the page from its own root, so the base stays "/" for
+// `tauri dev` and `tauri build`. Only the GitHub Pages build serves the page
+// under the repository's path, and it sets that path in PAGES_BASE.
+// @ts-expect-error process is a nodejs global
+const base = process.env.PAGES_BASE || "/";
+
 // https://vite.dev/config/
 export default defineConfig(async () => ({
+  base,
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //

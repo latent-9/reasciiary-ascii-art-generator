@@ -1,0 +1,54 @@
+name: Pages
+
+# Build the front end on its own and serve it as the project's landing page.
+# The desktop app renders through Rust, so the page here is the shell and the
+# writing around it, not a live render.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install the front-end deps
+        run: bun install --frozen-lockfile
+
+      # PAGES_BASE moves every asset under the repository's path, which is where
+      # a project page is served from.
+      - name: Build the page
+        run: bun run build
+        env:
+          PAGES_BASE: /reasciiary-ascii-art-generator/
+
+      - name: Upload the built page
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
