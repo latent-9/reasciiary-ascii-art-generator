@@ -910,12 +910,11 @@ impl Renderer {
     /// Columns per row for a grid the model fills, which is what the window
     /// shapes the frame from.
     ///
-    /// Measured at no pitch rather than at the current one: pitching the model
-    /// changes how tall it stands, and a frame that followed would resize under
-    /// a drag. The horizontal extent already covers everything the yaw will do,
-    /// so this holds steady through a spin — which is the part that has to.
+    /// Fitted over the whole pitch, like the frame itself (see [`Self::fit`]),
+    /// so the grid it shapes does not resize under a pitch drag — nor under a
+    /// spin, the yaws being swept the same way.
     pub fn frame_aspect(&self) -> f64 {
-        let (_, horizontal, vertical) = self.camera(&self.solid.bound, 0.0, self.yaw);
+        let (horizontal, vertical) = self.fit(&self.solid.bound, self.yaw);
         // A cell is `CELL_ASPECT` times taller than it is wide, so a world box
         // that square needs that many fewer rows than columns to hold it.
         horizontal * CELL_ASPECT / vertical
@@ -938,20 +937,54 @@ impl Renderer {
             .collect()
     }
 
-    /// The camera the frame is fitted to at this pitch: how far off the eye
-    /// stands, and half the width and height the solid covers from there.
+    /// How far off the eye stands to draw this pitch — the lens the projection
+    /// converges through.
     ///
     /// The standoff is counted off the solid's own reach, so a big drawing and
     /// a small one are seen through the same lens rather than the small one
     /// being held up against the glass. Reaching along the view axis counts too,
     /// and has to: a tall drawing turned on its side puts its length in front of
     /// the eye, and a standoff blind to that would set the eye down inside it.
-    fn camera(&self, bound: &Bound, pitch: f64, yaw: f64) -> (f64, f64, f64) {
+    ///
+    /// Read at the live pitch, not swept over the range the way the fit is: the
+    /// eye is what draws the foreshortening, and a tilt is meant to foreshorten.
+    /// Only the *size* the frame is fitted to (see [`Self::fit`]) is held still.
+    fn eye(&self, bound: &Bound, pitch: f64, yaws: &[f64]) -> f64 {
+        let (horizontal, vertical) = bound.extents(pitch, yaws);
+        EYE_REACH * horizontal.max(vertical).max(bound.depth_reach(pitch, yaws))
+    }
+
+    /// The pitches the fit is held still across — the whole range a drag reaches.
+    ///
+    /// Sampled rather than solved: the screen height at a pitch is a smooth
+    /// hump, so thirteen readings over the half-turn land within a fraction of a
+    /// percent of its peak, which is under a cell's clip on any frame this coarse.
+    fn fit_pitches() -> impl Iterator<Item = f64> {
+        const STEPS: usize = 12;
+        (0..=STEPS).map(|step| -TAU / 4.0 + (TAU / 2.0) * step as f64 / STEPS as f64)
+    }
+
+    /// Half the width and height the frame is fitted to, taken at the worst
+    /// pitch rather than the current one.
+    ///
+    /// Pitch turns the solid about the screen's own sideways axis, so the width
+    /// barely stirs and only the height rises and falls under the drag. Fitting
+    /// to the live height would resize the frame as it tilted — the whole model
+    /// swelling and shrinking instead of just foreshortening. Fitting instead to
+    /// the tallest the pitch can ever make it holds the frame still through the
+    /// drag, the same way sweeping the yaws (see [`Self::yaws`]) holds it still
+    /// through a spin. The cost is the mirror of that one: a pitch never tilted
+    /// to sits a little smaller than it could, the headroom kept for the tilt
+    /// that would fill it.
+    fn fit(&self, bound: &Bound, yaw: f64) -> (f64, f64) {
         let yaws = self.yaws(yaw);
-        let (horizontal, vertical) = bound.extents(pitch, &yaws);
-        let eye = EYE_REACH * horizontal.max(vertical).max(bound.depth_reach(pitch, &yaws));
-        let (horizontal, vertical) = bound.screen_extents(pitch, &yaws, eye);
-        (eye, horizontal, vertical)
+        let (mut horizontal, mut vertical) = (0.001_f64, 0.001_f64);
+        for pitch in Self::fit_pitches() {
+            let (h, v) = bound.screen_extents(pitch, &yaws, self.eye(bound, pitch, &yaws));
+            horizontal = horizontal.max(h);
+            vertical = vertical.max(v);
+        }
+        (horizontal, vertical)
     }
 
     /// `yaw` is passed rather than read from the field so one prepared renderer
@@ -984,7 +1017,10 @@ impl Renderer {
         let mut surface = Surface::new(columns, rows);
 
         let rotation = Rotation::new(yaw, self.pitch);
-        let (eye, horizontal, vertical) = self.camera(&solid.bound, self.pitch, yaw);
+        // The eye tracks the live pitch so a tilt foreshortens, but the frame is
+        // fitted to the whole pitch range so a tilt does not resize it.
+        let eye = self.eye(&solid.bound, self.pitch, &self.yaws(yaw));
+        let (horizontal, vertical) = self.fit(&solid.bound, yaw);
 
         // A cell is CELL_PIXELS_TALL / CELL_PIXELS_WIDE = CELL_ASPECT times
         // taller than it is wide, which is exactly how much taller than wide the
@@ -1497,6 +1533,28 @@ mod tests {
             near > 0 && near < columns.len() - 1,
             "and it stands inside the silhouette, not on it: column {near} of {}",
             columns.len()
+        );
+    }
+
+    /// The frame a pitch drag is fitted to must not follow the pitch — that
+    /// chase is what once made the whole model swell and shrink instead of
+    /// foreshorten, a sixth of its size on a slab. The fit is read over the
+    /// whole pitch range now, so it comes out the same whatever pitch the
+    /// renderer is turned to; only the eye, which draws the foreshortening,
+    /// still moves with it.
+    #[test]
+    fn the_fit_does_not_follow_the_pitch() {
+        let yaw = 25_f64.to_radians();
+        let fitted = |pitch: f64| {
+            let mut renderer = Renderer::new(Solid::from_text(BLOCK, 8.0));
+            renderer.pitch = pitch;
+            renderer.fit(&renderer.solid.bound, yaw)
+        };
+        let flat = fitted(0.0);
+        let steep = fitted(60_f64.to_radians());
+        assert_eq!(
+            flat, steep,
+            "the fitted frame moved with the pitch: {flat:?} flat, {steep:?} steep"
         );
     }
 
