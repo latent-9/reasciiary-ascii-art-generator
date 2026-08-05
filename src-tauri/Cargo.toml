@@ -3,6 +3,7 @@ name = "reasciiary-desktop"
 version = "0.1.0"
 description = "Six tools and one exporter for making a picture into another picture"
 authors = ["latent-9"]
+license = "MIT"
 edition = "2021"
 # Two binaries ship from here: the window and the `reasciiary` command line. The
 # short name belongs to the one that gets typed, so the window's takes a suffix —

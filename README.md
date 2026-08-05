@@ -547,5 +547,9 @@ src-tauri/src/
 Adding a tool is one line in `generator::registry` and an entry in `TOOLS`; a
 filter is one line in `filter::registry`.
 
+## License
+
+Reasciiary is released under the MIT License — see [`LICENSE`](LICENSE).
+
 The font is [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono), under
 the SIL Open Font License — see `src-tauri/assets/OFL.txt`.
