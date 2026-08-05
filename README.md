@@ -16,14 +16,14 @@ grid is one way to land a frame rather than the point of the thing.
 The renderers `ascii` borrows from all start with a mesh somebody modelled. It
 starts with a file nobody modelled anything in, so it needs one rule they do not:
 what the third dimension of a flat thing actually *is*. The rule is ink. A glyph
-that fills more of its cell stands taller — `@` rises, `.` barely lifts, a space
-is a hole — and the result is lit, projected back onto a character grid, and
+that fills more of its cell stands taller (`@` rises, `.` barely lifts, a space
+is a hole), and the result is lit, projected back onto a character grid, and
 written out.
 
 A picture is the same rule with the reading swapped: light for ink. It is resized
 to `--relief` cells across, corrected for how much taller a cell is than it is
 wide, and every cell hands over how much light is in it. Past that point nothing
-can tell which kind of file it was given — the heightfield, the lighting, the
+can tell which kind of file it was given: the heightfield, the lighting, the
 camera and the alphabet are one path, not two. `--invert` decides which end of
 either source is the subject, because a photograph is usually lit and a drawing
 is usually dark on white paper, and `--contrast` opens the middle of the range
@@ -34,27 +34,27 @@ where a flat scan leaves the relief mumbling.
 Ink coverage gives every cell a height, and the drawing is struck *through* the
 slab rather than raised off a backing plate: a column of ink `h` tall runs from
 `-h/2` to `+h/2`. A plate is one flat quad with one normal spanning the whole
-drawing — head-on it hides behind the ink and costs nothing, but turned past a
+drawing: head-on it hides behind the ink and costs nothing, but turned past a
 quarter it *is* the picture, so half of every spin arrived as a featureless mass
 however carefully the front had been lit. Struck through, there is no angle with
 nothing to show, at the price of the drawing being open work: every space in it
 is a hole clean through.
 
-`scene` skips the heightfield entirely — it hands the same renderer the quads a
+`scene` skips the heightfield entirely: it hands the same renderer the quads a
 formula cuts, so a torus is a torus rather than a relief of one.
 
 ## Where the shade comes from
 
 The light has to be able to tell one cell from the next or the whole thing
 renders as a slab. A box's top is flat, so reading its normal off the box says
-nothing — every cap in the model takes exactly the same light and the relief only
+nothing: every cap in the model takes exactly the same light and the relief only
 survives as a step at the silhouette. The normal is taken from the drawing
 instead: the gradient of the heightfield under that cell, so a cap leans back
 against the ink rising beside it and catches the key light the way the slope it
 stands on would.
 
 That gradient is a Sobel rather than a difference of the two neighbours either
-side. ASCII art dithers — `#@#@` is a tone, not a staircase — and a stencil one
+side. ASCII art dithers (`#@#@` is a tone, not a staircase), and a stencil one
 cell wide reads a cliff at every cell, which breaks the surface into noise.
 Asking the same question of a three by three patch cancels the alternation, the
 way the eye does with it. A wall gets the same treatment from the other end: its
@@ -69,14 +69,14 @@ take the same shade, both come out the same character. So the heightfield is
 asked a second question. A neighbour standing `rise` above a cell `run` away
 walls off everything below `rise / run`, and the steepest such ratio along each
 of eight directions says how much sky the cell has left. That belongs to the
-drawing rather than to the angle it is seen from, which is the point — it is
+drawing rather than to the angle it is seen from, which is the point: it is
 still there at the yaws where the direct light has nothing left to separate.
 
 ## The camera
 
 The eye stands off by a multiple of the solid's own reach. Under a parallel
 camera a face keeps its size however far away it is, so the two ends of a turning
-slab are drawn identically and nothing in the picture says which one is nearer —
+slab are drawn identically and nothing in the picture says which one is nearer:
 a spin reads as a shape shearing about on the page rather than as a body turning
 in space. The frame is fitted by carrying the solid's own hull through that same
 projection and sweeping it over a whole turn, so the model is drawn as large as
@@ -84,7 +84,7 @@ it can be without breathing as it spins.
 
 ## Choosing a character
 
-A ramp — order glyphs by weight, take a cell's brightness, index in — is what
+A ramp (order glyphs by weight, take a cell's brightness, index in) is what
 [emilwidlund/ASCII](https://github.com/emilwidlund/ASCII) does, and it cannot do
 better than one value a cell, so an edge comes out as a staircase.
 [alecjacobson/ascii3d](https://github.com/alecjacobson/ascii3d) rasterises finer
@@ -108,8 +108,8 @@ offers are a real trade rather than a preference:
 | `ink` | every printable glyph | ninety-five, ordered by coverage |
 
 Every one of them is *measured* rather than indexed. An ordering made by eye is
-never evenly spaced — `'` and `-` are nearly the same weight while `|` to `0` is
-a jump — so indexing by position spends the same range of brightness on each step
+never evenly spaced (`'` and `-` are nearly the same weight while `|` to `0` is
+a jump), so indexing by position spends the same range of brightness on each step
 and a face at half brightness comes out at whatever the middle character happens
 to weigh. The bitmaps have already been rasterised, so a brightness buys the glyph
 whose ink is nearest instead, and anything the ordering had out of place is put
@@ -128,7 +128,7 @@ not. It is offered because it is the honest maximum and it suits flat artwork,
 not because a solid should be drawn with it.
 
 None of this reaches the silhouette, which is matched against strokes whatever
-`--grade` says — a `W` or a `J` may fit an edge best by least squares, but what
+`--grade` says: a `W` or a `J` may fit an edge best by least squares, but what
 the eye does with a row of letters is read it. So a longer set buys shades on the
 faces without costing the outline its edges.
 
@@ -141,7 +141,7 @@ chooses between them by name, so the same field can come out traced or graded.
 
 `media` takes the same files the lift does, and a drawing is the one it has least
 to do to. It was written as characters already, so it is laid on the grid as
-written — the artist's own `#` and `+`, not the reader's opinion of them — and
+written (the artist's own `#` and `+`, not the reader's opinion of them), and
 the window sizes the grid from the file rather than from the detail slider. Only
 two things overrule that. Asking anything of the reading (`--marks`, `--invert`,
 `--contrast`) is asking for the drawing to be read rather than shown; and a grid
@@ -150,7 +150,7 @@ drawing is drawn out as light at the reader's own five by eleven pixels a cell
 and matched back, which is a resampling of the whole of it rather than a crop.
 
 The field is 4D Perlin noise sampled on a *circle* in time rather than along a
-line, so a period arrives back exactly where it started — the trick
+line, so a period arrives back exactly where it started, the trick
 [Bleuje's animations](https://github.com/Bleuje/processing-animations-code) turn
 on. Each stroke also carries its own offset into that period and fades in and out
 at both ends of it, so no frame is the one where every line restarts at once.
@@ -158,10 +158,10 @@ at both ends of it, so no frame is the one where every line restarts at once.
 ## The pieces
 
 `loops` is the one tool that brings its own subject; every other tool is a way of
-looking at something somebody else made. The spiral below is the near miss — it
+looking at something somebody else made. The spiral below is the near miss: it
 takes a file like the rest, and is the only one of them that will stand without
 one. A piece is a finished animation with a dial or two on it, made to be
-exported — a loop that meets itself, at a size that can be posted.
+exported: a loop that meets itself, at a size that can be posted.
 
 | `--piece` | |
 | --- | --- |
@@ -174,8 +174,8 @@ exported — a loop that meets itself, at a size that can be posted.
 
 Four of them paint into the same sub-cell raster `gen2d` uses and are read back
 by the same matcher; two hand quads to the lit renderer, the way `scene` does.
-Each takes its own dial where it wants one — `--order`, `--count`, `--depth`,
-`--twists` — rather than every piece answering for a row that means nothing to
+Each takes its own dial where it wants one (`--order`, `--count`, `--depth`,
+`--twists`) rather than every piece answering for a row that means nothing to
 five of the six.
 
 The pieces are written from the ideas in
@@ -187,30 +187,30 @@ arrives, and the taste for a figure that rearranges itself and comes back.
 ## The one that is not characters
 
 `spiral` is a plane with marks over it. The plane's height is a plain sine wave
-delayed by how far out a point lies *and* by which way round it lies — and a
+delayed by how far out a point lies *and* by which way round it lies. A
 delay that reads the angle is a spiral, so the crest winds outward instead of
 ringing. How much of each delay there is settles what the piece is, and both are
 asked for: `--rings` is how many times the wave repeats on the way out, `--arms`
 is how many arms it winds them into. One arm is the piece as it was composed; six
 is a rosette, none is rings growing out of the middle rather than a spiral, and
-below none it winds the other way. Whole numbers, and not for tidiness — the
+below none it winds the other way. Whole numbers, and not for tidiness: the
 second delay is read off an angle, and an angle wraps, so anything else leaves a
 crease running out of the middle of every frame. The disc all of that runs over
 is flat as the piece was composed and need not be: `--dome` lifts it, a whole one
 into a half-sphere with the wave still running over whatever shape it has been
 left. What the marks do then is stack against its edge into a bright rim rather
-than spread over its face — a hemisphere is steepest where it meets its own rim
+than spread over its face: a hemisphere is steepest where it meets its own rim
 and level at the top, so an even scatter over it lands unevenly on the frame.
 Below none it is a bowl, the same shape looked into rather than at.
 
 A sine says the same thing everywhere, though, and left to itself it draws crests
 all the same height, the same distance apart, each a perfect circle or a perfect
-spiral — which the eye reads as a diagram of a wave rather than as a wave.
+spiral, which the eye reads as a diagram of a wave rather than as a wave.
 `--churn` is what stops that: a noise field, walked round a circle so it comes
 back where it set off, added to the surface's own height. The crests then wander,
 vary, and stop being circles, and over a loop the whole shape works rather than
 sliding rigidly past. It is the one setting here that does not start where the
-piece was first composed — set low, because the wave is still what the piece is,
+piece was first composed: set low, because the wave is still what the piece is,
 and `--churn 0` is the original exactly.
 
 What stands over the plane is drawn one of two ways, and which one depends on
@@ -222,7 +222,7 @@ rising and falling with it. That is the piece as it was composed, and `--bare`
 asks for it.
 
 With a drawing or a picture laid on the disc, the drift goes and the marks stand
-along one line wound out from the middle instead — an engraver's line, `--windings`
+along one line wound out from the middle instead: an engraver's line, `--windings`
 turns of it, thickening where the light is and thinning to nothing where it is
 not. A scatter cannot draw a picture and was never asked to: most of a scatter
 lands on the dark and is swept away, what is left holds no edge, and what arrives
@@ -233,7 +233,7 @@ less.
 
 Each mark takes the light it is standing over as its size, the way every halftone
 ever printed takes a tone, and one standing over the picture's paper is not drawn
-at all. Sizing the mark is what makes a photograph arrive — a photograph is lit
+at all. Sizing the mark is what makes a photograph arrive: a photograph is lit
 nearly everywhere, so drawing the marks faintly instead would leave every one of
 them standing and merely grey the line, and a greyed line is the line. A mark is
 half a winding across at the full of the light, so there it closes on the
@@ -243,7 +243,7 @@ while the line turns a whole revolution through it over the loop, riding the
 swell wherever the wave happens to be under it.
 
 It takes the file the same way the other two do, and the same flags say how to
-read it — `--invert` and `--contrast` for which end of it is the subject and how
+read it: `--invert` and `--contrast` for which end of it is the subject and how
 hard, `--color` to give each mark the colour it is standing on instead of the
 ink. `--spread` is how much of the disc it covers, and past a whole the line is
 wound over the middle of it, which is a crop rather than a fit. `--fit` is the
@@ -253,15 +253,15 @@ inside the disc and leaves the near and far of it empty, while `cover` fills the
 disc and lets the ends of the picture walk out past the rim. `--floor` is where
 the picture stops being a subject and starts being paper: below it a mark is not
 drawn at all, which is what keeps the dark of a picture dark rather than hatched
-over — and where that line falls is a judgement about the picture, low for a
+over. Where that line falls is a judgement about the picture, low for a
 subject sitting in shadow and high for one meant to read as a stencil.
 
 Before any of those are asked, the picture is opened out to its own darkest and
-brightest — `--open`, a whole by default and nought to read the light exactly as
+brightest: `--open`, a whole by default and nought to read the light exactly as
 it stands. It has to come first and it has to be on: light is carried as the
 *size* of a mark, so a picture whose light never rises far is a picture drawn
 entirely in marks too fine to see. A screenshot of pale text on a dark field is
-the worst case and the commonest one — read down to the size the line can show,
+the worst case and the commonest one: read down to the size the line can show,
 every stroke in it averages away to a few hundredths and the whole picture comes
 out under the paper floor, so the frame arrives bare, with no sign a file was
 ever opened. `--contrast` cannot rescue that, and this is why: it
@@ -273,7 +273,7 @@ picture whose light averages high is mostly its own paper, and it is the ink tha
 gets drawn. The same arithmetic is behind it: light is the size of a mark, so a
 picture that is bright nearly everywhere is a line that runs solid nearly
 everywhere, which is a coil with nothing in it to say a file was ever opened.
-That is not an unusual file to be handed — a signature, a logo, a
+That is not an unusual file to be handed: a signature, a logo, a
 diagram, a screenshot of a page, all of them a little ink on a great deal of
 white. Well above a half before it says so, because a picture with tones either
 side of the middle is a photograph and turning a photograph over is never what
@@ -283,19 +283,19 @@ found, so a line that knows which end it wants gets it.
 The disc also settles under a picture. At its full height the wave carries the
 plane about a quarter of a frame toward the eye and away again, eight times over
 between the middle and the rim, and the lens magnifies what is near it and
-shrinks what is far — so on a drawing each swell drags the part standing on it
+shrinks what is far, so on a drawing each swell drags the part standing on it
 outward and the next hauls it back, and the subject arrives torn into eight rings
 of itself. On a scatter that reads as depth, because a scatter has no shape to
 lose. So a laid picture leaves a quarter of the swell standing: enough to see the
 line rise and fall, not enough to pull the drawing apart. The drift keeps the
 whole of it.
 
-A picture still wants a low `--pitch` to be read at — from overhead the disc is
+A picture still wants a low `--pitch` to be read at: from overhead the disc is
 a disc, and tipped far enough over to see the swells standing in front of each
 other a photograph is foreshortened into a band and a page of writing is nothing.
 Around 15 the subject survives and there is still a surface under it; past 40 or
 so it is gone. The window's spiral tab opens there for that reason, and the drift
-alone is the finer thing from up around fifty — which is a drag away.
+alone is the finer thing from up around fifty, which is a drag away.
 
 With no file at all it is the drift alone, which is how the piece was
 composed and a thing in its own right; `--bare` asks for that with one open,
@@ -307,7 +307,7 @@ there for is to stand in the way. A mark over the far slope of a swell is hidden
 by the near one, and that occlusion is the only thing saying what stands over it
 lies on a surface rather than swimming in a fog. Read back as characters the
 plane would have to take a shade of its own, and the piece would be a lit relief
-with some dust on it — a different picture.
+with some dust on it, a different picture.
 
 So it hands the exporter a frame directly, and what it draws into is a raster
 with a depth buffer: `1/z` interpolated across a triangle, because that is the
@@ -329,16 +329,16 @@ it follows, which reserves its rights.
 
 ## Moving a surface
 
-`ascii` and `scene` take `--motion` on top of the turn — `ripple` for rings
+`ascii` and `scene` take `--motion` on top of the turn (`ripple` for rings
 travelling out from the middle, `breathe` for the whole body at once, `drift` for
-noise walked round the same circle — with `--amount` for how hard.
+noise walked round the same circle), with `--amount` for how hard.
 
 The two apply it differently, because their subjects are different. A drawing is
 a heightfield, so the movement scales heights rather than adding to them: a cell
 the drawing left blank stays blank, where a movement that added would fill the
 paper in and leave a rippling slab. A solid is displaced along each corner's own
-outward direction, which every sample already knows — away from the middle for a
-sphere, away from the ring for a torus, away from the curve for the knot — so one
+outward direction, which every sample already knows (away from the middle for a
+sphere, away from the ring for a torus, away from the curve for the knot), so one
 line moves all four and no shape has to be told about movement at all.
 
 Every motion is a whole number of cycles over the period by construction, so the
@@ -357,14 +357,14 @@ The toolbar picks the tool; the panel beside the preview is that tool's own
 options and nothing else, with what the export writes at the foot of it. Three of
 the six are in it: the lift, the flat read of the same file, and the spiral that
 lays the same file on its wave. The other three bring their own subject and are
-not, because a formula turning on its own is a poor thing to open an app on —
+not, because a formula turning on its own is a poor thing to open an app on:
 nothing on screen was asked for, and the tool somebody came here to use was three
 tabs along. They are still in the registry, and the command line asks for them by
 name.
 
 The spiral is the one that will also stand on nothing, which is what it has in
-common with them, and it is in the window anyway. It is composed by eye — the
-angle it is seen from and how thick the crowd is are the whole of the piece — and
+common with them, and it is in the window anyway. It is composed by eye (the
+angle it is seen from and how thick the crowd is are the whole of the piece), and
 those are questions a command line answers one rendered file at a time. The app
 still opens on the lift, so it is a tab away rather than in the way.
 
@@ -380,15 +380,15 @@ Each tool keeps its own angle, so turning the torus and then coming back to the
 drawing finds it where it was left.
 
 The spiral says those three numbers out loud as well, under View, and the two
-handles move together — drag the disc and the sliders follow it. A view found by
+handles move together: drag the disc and the sliders follow it. A view found by
 hand is one worth keeping, and only a number can be written down and asked for
 again a fortnight later.
 
 Three schemes sit in the toolbar, and the swatch beside them recolours the object
-itself to anything — the scheme keeps the paper and the window's own text, so a
+itself to anything: the scheme keeps the paper and the window's own text, so a
 green object on black cannot take the controls with it. Where the frames are
 characters nothing re-renders for a colour: it costs a CSS property until an
-export reads it. The spiral is the exception, and has to be drawn again — no
+export reads it. The spiral is the exception, and has to be drawn again: no
 property on the page reaches inside a picture.
 
 The preview does not chase the spin a frame at a time. One loop is rendered in
@@ -411,14 +411,14 @@ the kind that stretching ruins.
 brew install ffmpeg
 ```
 
-It is looked for on the PATH first, then in the usual install prefixes — a
+It is looked for on the PATH first, then in the usual install prefixes: a
 bundled app inherits almost no PATH from Finder, so a copy under
 `/opt/homebrew/bin` is found without one. `REASCIIARY_FFMPEG` overrides both.
 
 ## The command line
 
-The same pipeline, driven by a typed line. The whole line is one argument, quoted
-— the `>` belongs to the command language rather than to the shell:
+The same pipeline, driven by a typed line. The whole line is one argument, quoted,
+because the `>` belongs to the command language rather than to the shell:
 
 ```sh
 cargo run --bin reasciiary -- "ascii logo.txt --depth 12 --turns 3 > out.mp4"
@@ -442,7 +442,7 @@ Every tool takes these, whatever it draws:
 
 `--samples` is what makes a fast thing look fast. One render a frame catches an
 instant, and several of them averaged across the gap to the next frame smear it
-the way a camera would — `--samples 5 --shutter 1.2` is the setting the sketches
+the way a camera would: `--samples 5 --shutter 1.2` is the setting the sketches
 this borrows from record at. Only a written file pays for it: the preview is
 always a single sample, which is the same split those sketches make between
 watching a piece and recording it.
@@ -487,11 +487,11 @@ And its own on top:
 
 Anything with a camera takes `--yaw` `--pitch` `--zoom`, and anything that moves
 takes `--still` to hold it. A tool that turns over its loop takes `--turns` on
-top, whole turns over one of them — the spiral has none, because what travels in
+top, whole turns over one of them: the spiral has none, because what travels in
 it is the wave rather than the eye. Its `--spin` is not that flag under another
 name: the eye stays where it was put and the line goes round beneath it, which
 is a different piece from the same view being carried around a still one.
-Anything lit takes `--grade` — `shades`, `detailed` or `ink`, defaulting to
+Anything lit takes `--grade`: `shades`, `detailed` or `ink`, defaulting to
 `detailed`. Anything that loops takes `--period`: how many seconds one loop
 lasts, which is the whole clip unless less is asked for.
 
@@ -533,7 +533,7 @@ src-tauri/src/
   art/
     generators/      the six tools
       loops/         a file to a piece, and the two paths they take out of here
-    filters/         post-processing — the seam is cut, nothing fills it yet
+    filters/         post-processing: the seam is cut, nothing fills it yet
     motion.rs        phase instead of a clock: easing, and noise round a circle
     surface.rs       a surface cut from two parameters, and a tube round a curve
     raster.rs        triangles and dots to pixels, with a depth buffer
@@ -549,7 +549,7 @@ filter is one line in `filter::registry`.
 
 ## License
 
-Reasciiary is released under the MIT License — see [`LICENSE`](LICENSE).
+Reasciiary is released under the MIT License. See [`LICENSE`](LICENSE).
 
 The font is [JetBrains Mono](https://github.com/JetBrains/JetBrainsMono), under
-the SIL Open Font License — see `src-tauri/assets/OFL.txt`.
+the SIL Open Font License. See `src-tauri/assets/OFL.txt`.
