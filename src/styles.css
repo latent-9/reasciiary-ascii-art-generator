@@ -321,6 +321,32 @@ button[hidden] {
   height: 100%;
 }
 
+/* With no renderer behind the page — a plain browser rather than the app — the
+   stage cannot draw a live frame. The script sets `.web` on <body> only in that
+   case, which swaps the two live panes for a still of a real render. The pane's
+   own background is the still's background too, so `contain` letterboxes into
+   the same colour and the seam does not show. */
+.poster {
+  display: none;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+
+body.web #preview,
+body.web #picture {
+  display: none;
+}
+
+body.web .poster {
+  display: block;
+}
+
+/* Nothing behind the page can be turned, so the stage does not offer to. */
+body.web .screen {
+  cursor: default;
+}
+
 /* The options belong to whichever tool is chosen, and they sit on the leading
    edge as a sidebar the way the editor this lives beside keeps its own — a
    hairline off the stage rather than a rule across the window from it. */

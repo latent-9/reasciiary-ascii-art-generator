@@ -46,6 +46,7 @@ const element = <T extends HTMLElement>(id: string) =>
 
 const preview = element<HTMLPreElement>("preview");
 const picture = element<HTMLCanvasElement>("picture");
+const poster = element<HTMLImageElement>("poster");
 const brush = picture.getContext("2d")!;
 const screen = document.querySelector<HTMLDivElement>(".screen")!;
 const status = element("status");
@@ -924,6 +925,12 @@ window.addEventListener("keydown", (event) => {
 // rather than wrapped: there is no answer to give, so the honest thing is not
 // to take the click. The shortcut reads the same flag the Render button carries.
 if (!RENDERER) {
+  // No app behind the page, so nothing can draw a live frame. Rather than leave
+  // the stage on its "nothing is drawing this" note, dress the page as the app
+  // it stands in for: a still of a real render fills the stage, and the status
+  // still says plainly that nothing is drawing it.
+  document.body.classList.add("web");
+  poster.src = "/preview.png";
   openButton.disabled = true;
   renderButton.disabled = true;
   status.textContent = "no renderer behind this page";
