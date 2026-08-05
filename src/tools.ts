@@ -357,8 +357,10 @@ export const TOOLS: Tool[] = [
           { kind: "range", flag: "pitch", label: "Tilt", min: -90, max: 90, step: 1, value: 14 },
           // Finer steps than the rest: the wheel moves this by whatever fraction
           // a notch of scrolling comes to, and a coarse slider would show that
-          // as a lie.
-          { kind: "range", flag: "zoom", label: "Zoom", min: 0.25, max: 4, step: 0.01, value: 1 },
+          // as a lie. Stepped in thousandths, which is the precision the render is
+          // sent, so the row sits exactly where the wheel left it rather than a
+          // snap away.
+          { kind: "range", flag: "zoom", label: "Zoom", min: 0.25, max: 4, step: 0.001, value: 1 },
         ],
       },
       // The loop is as long as the export is, so the length in the output group

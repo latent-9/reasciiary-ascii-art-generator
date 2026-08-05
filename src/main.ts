@@ -816,9 +816,19 @@ function bindCamera() {
       if (!turnable()) return;
       event.preventDefault();
       const camera = session().camera;
+      // A wheel notch is not one unit everywhere: a trackpad reports pixels and a
+      // mouse wheel lines (or, rarely, whole pages), so the raw delta is brought
+      // to pixels first — otherwise the same notch zooms a different amount from
+      // one pointing device to the next.
+      const step =
+        event.deltaMode === 1
+          ? event.deltaY * 16
+          : event.deltaMode === 2
+            ? event.deltaY * screen.clientHeight
+            : event.deltaY;
       // Multiplicative, so a notch is the same proportion of the size at every
       // zoom rather than a bigger jump the further out you are.
-      camera.zoom = clamp(camera.zoom * Math.exp(-event.deltaY * 0.002), 0.25, 4);
+      camera.zoom = clamp(camera.zoom * Math.exp(-step * 0.002), 0.25, 4);
       showCamera();
       showFrame();
       invalidate();
@@ -830,6 +840,10 @@ function bindCamera() {
     if (!turnable()) return;
     Object.assign(session().camera, state.tool.camera);
     showCamera();
+    // Drag and wheel both paint a frame the instant they move; a reset that only
+    // queued the debounced loop left the old angle on screen long enough to read
+    // as the double-click having done nothing.
+    showFrame();
     invalidate();
   });
 }
