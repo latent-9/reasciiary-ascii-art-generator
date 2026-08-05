@@ -1,0 +1,47 @@
+name: CI
+
+# The same three checks the project is kept green by locally: the front end
+# builds, clippy is clean, and every test passes. Run on macOS so the Tauri
+# crate compiles against the system WebKit without any extra packages.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: clippy, tests and build
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache the Rust build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install the front-end deps
+        run: bun install --frozen-lockfile
+
+      # First, so the Tauri build script finds the dist it is pointed at.
+      - name: Build the front end
+        run: bun run build
+
+      - name: Clippy
+        run: cargo clippy --manifest-path src-tauri/Cargo.toml --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test --manifest-path src-tauri/Cargo.toml
