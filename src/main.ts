@@ -46,7 +46,6 @@ const element = <T extends HTMLElement>(id: string) =>
 
 const preview = element<HTMLPreElement>("preview");
 const picture = element<HTMLCanvasElement>("picture");
-const poster = element<HTMLImageElement>("poster");
 const brush = picture.getContext("2d")!;
 const screen = document.querySelector<HTMLDivElement>(".screen")!;
 const status = element("status");
@@ -394,11 +393,16 @@ async function pickTool(tool: Tool) {
 const RENDERER = "__TAURI_INTERNALS__" in window;
 
 /// What a browser is told instead of a frame.
-const NOTHING_BEHIND = `nothing here is drawing this
+const NOTHING_BEHIND = `Reasciiary
 
-every frame on this panel is made in Rust, by the app the panel belongs to,
-and a browser has no app behind it — what is here is the shape of the thing:
-the tools, the controls, the room a drawing goes in
+a small desktop app that makes a picture into another picture. give it a
+drawing or a photo, and a tool works it into something else: lit 3D ASCII,
+a flat character render, a spiral, smoke. six tools and one exporter, held
+as a still frame or written out as an animated GIF.
+
+this page is the app's own panel. every frame is drawn in Rust by the app
+behind it, and a browser has none, so nothing draws here. what is left is
+the shape of the thing: the tools, the controls, the room a drawing goes in.
 
 run  bun run tauri dev  for the whole of it`;
 
@@ -925,12 +929,6 @@ window.addEventListener("keydown", (event) => {
 // rather than wrapped: there is no answer to give, so the honest thing is not
 // to take the click. The shortcut reads the same flag the Render button carries.
 if (!RENDERER) {
-  // No app behind the page, so nothing can draw a live frame. Rather than leave
-  // the stage on its "nothing is drawing this" note, dress the page as the app
-  // it stands in for: a still of a real render fills the stage, and the status
-  // still says plainly that nothing is drawing it.
-  document.body.classList.add("web");
-  poster.src = "/preview.png";
   openButton.disabled = true;
   renderButton.disabled = true;
   status.textContent = "no renderer behind this page";
