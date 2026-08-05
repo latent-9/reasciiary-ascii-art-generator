@@ -1,7 +1,7 @@
 # Reasciiary
 
 <p align="center">
-  <img src="docs/screenshot.png" alt="The Reasciiary window turning its built-in sample into lit ASCII" width="820">
+  <img src="docs/hero.png" alt="The spiral's drift, seventeen thousand particles wound out from the middle and lit in red" width="820">
 </p>
 
 Six tools and one exporter. Five of them end in a grid of characters, lit, and
