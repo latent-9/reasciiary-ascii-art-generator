@@ -1,5 +1,9 @@
 # Reasciiary
 
+<p align="center">
+  <img src="docs/screenshot.png" alt="The Reasciiary window turning its built-in sample into lit ASCII" width="820">
+</p>
+
 Six tools and one exporter. Five of them end in a grid of characters, lit, and
 written out as an MP4, a GIF, a PNG or more text. The sixth ends in pixels: the
 grid is one way to land a frame rather than the point of the thing.
