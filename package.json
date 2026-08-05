@@ -5,6 +5,26 @@
   "description": "Six tools and one exporter for making a picture into another picture",
   "license": "MIT",
   "author": "latent-9",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/latent-9/reasciiary-ascii-art-generator.git"
+  },
+  "homepage": "https://github.com/latent-9/reasciiary-ascii-art-generator#readme",
+  "bugs": {
+    "url": "https://github.com/latent-9/reasciiary-ascii-art-generator/issues"
+  },
+  "keywords": [
+    "ascii-art",
+    "ascii-art-generator",
+    "image-to-ascii",
+    "ascii",
+    "3d-ascii",
+    "generative-art",
+    "gif",
+    "tauri",
+    "rust",
+    "creative-coding"
+  ],
   "type": "module",
   "scripts": {
     "dev": "vite",
